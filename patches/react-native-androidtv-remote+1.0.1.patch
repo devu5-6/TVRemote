@@ -1,0 +1,833 @@
+diff --git a/node_modules/react-native-androidtv-remote/dist/certificate/CertificateGenerator.js b/node_modules/react-native-androidtv-remote/dist/certificate/CertificateGenerator.js
+index c05022e..4d94b67 100644
+--- a/node_modules/react-native-androidtv-remote/dist/certificate/CertificateGenerator.js
++++ b/node_modules/react-native-androidtv-remote/dist/certificate/CertificateGenerator.js
+@@ -4,58 +4,71 @@ Object.defineProperty(exports, "__esModule", {
+   value: true
+ });
+ exports.CertificateGenerator = void 0;
+-require("core-js/modules/es.regexp.to-string.js");
++// Patched: dropped core-js polyfill requires. Hermes has native support for
++// all these ES features, and core-js's Promise/iterator polyfills conflict
++// badly with Hermes at runtime (causes recursive stack overflows). We keep
++// the require() calls removed rather than installing core-js.
+ var _nodeForge = _interopRequireDefault(require("node-forge"));
+-var _reactNativeModpow = _interopRequireDefault(require("react-native-modpow"));
+ function _interopRequireDefault(e) { return e && e.__esModule ? e : { default: e }; }
+ class CertificateGenerator {
++  // Patched: react-native-modpow's Android build.gradle targets a removed
++  // Gradle repository (jcenter) and cannot build with modern Android Gradle
++  // Plugin versions, so we use node-forge's pure-JS BigInteger.modPow with no
++  // native dependency. Pure-JS 2048-bit RSA keygen is CPU heavy (can take
++  // 1-2+ minutes on a phone), so this now uses forge's callback-based
++  // generateKeyPair, which internally chunks prime search in ~10ms slices via
++  // setImmediate. That keeps the JS thread (and UI/bridge) responsive instead
++  // of freezing the app for the whole keygen, which is what the old
++  // synchronous generateKeyPair(2048) call used to do.
+   static generateFull(name) {
+     console.log("Entering generateFull(".concat(name, ")"));
+-    console.log('modPow: ', _reactNativeModpow.default);
+-    _nodeForge.default.jsbn.BigInteger.prototype.modPow = function nativeModPow(e, m) {
+-      var result = (0, _reactNativeModpow.default)({
+-        target: this.toString(16),
+-        value: e.toString(16),
+-        modifier: m.toString(16)
++    return new Promise((resolve, reject) => {
++      _nodeForge.default.pki.rsa.generateKeyPair(2048, 0x10001, {}, (err, keys) => {
++        if (err) {
++          reject(err);
++          return;
++        }
++        try {
++          var date = new Date();
++          date.setUTCFullYear(2021);
++          var date2 = new Date();
++          date2.setUTCFullYear(2099);
++          var cert = _nodeForge.default.pki.createCertificate();
++          cert.publicKey = keys.publicKey;
++          cert.serialNumber = '01' + _nodeForge.default.util.bytesToHex(_nodeForge.default.random.getBytesSync(19));
++          cert.validity.notBefore = date;
++          cert.validity.notAfter = date2;
++          var attributes = [{
++            name: 'commonName',
++            value: name
++          }, {
++            name: 'countryName',
++            value: 'CNT'
++          }, {
++            shortName: 'ST',
++            value: 'ST'
++          }, {
++            name: 'localityName',
++            value: 'LOC'
++          }, {
++            name: 'organizationName',
++            value: 'O'
++          }, {
++            shortName: 'OU',
++            value: 'OU'
++          }];
++          cert.setSubject(attributes);
++          cert.sign(keys.privateKey, _nodeForge.default.md.sha256.create());
++          console.debug('Exiting generateFull');
++          resolve({
++            cert: _nodeForge.default.pki.certificateToPem(cert),
++            key: _nodeForge.default.pki.privateKeyToPem(keys.privateKey)
++          });
++        } catch (certError) {
++          reject(certError);
++        }
+       });
+-      return new _nodeForge.default.jsbn.BigInteger(result, 16);
+-    };
+-    var date = new Date();
+-    date.setUTCFullYear(2021);
+-    var date2 = new Date();
+-    date2.setUTCFullYear(2099);
+-    var keys = _nodeForge.default.pki.rsa.generateKeyPair(2048);
+-    var cert = _nodeForge.default.pki.createCertificate();
+-    cert.publicKey = keys.publicKey;
+-    cert.serialNumber = '01' + _nodeForge.default.util.bytesToHex(_nodeForge.default.random.getBytesSync(19));
+-    cert.validity.notBefore = date;
+-    cert.validity.notAfter = date2;
+-    var attributes = [{
+-      name: 'commonName',
+-      value: name
+-    }, {
+-      name: 'countryName',
+-      value: 'CNT'
+-    }, {
+-      shortName: 'ST',
+-      value: 'ST'
+-    }, {
+-      name: 'localityName',
+-      value: 'LOC'
+-    }, {
+-      name: 'organizationName',
+-      value: 'O'
+-    }, {
+-      shortName: 'OU',
+-      value: 'OU'
+-    }];
+-    cert.setSubject(attributes);
+-    cert.sign(keys.privateKey, _nodeForge.default.md.sha256.create());
+-    console.debug('Exiting generateFull');
+-    return {
+-      cert: _nodeForge.default.pki.certificateToPem(cert),
+-      key: _nodeForge.default.pki.privateKeyToPem(keys.privateKey)
+-    };
++    });
+   }
+ }
+ exports.CertificateGenerator = CertificateGenerator;
+\ No newline at end of file
+diff --git a/node_modules/react-native-androidtv-remote/dist/index.js b/node_modules/react-native-androidtv-remote/dist/index.js
+index f31bad3..ff257ba 100644
+--- a/node_modules/react-native-androidtv-remote/dist/index.js
++++ b/node_modules/react-native-androidtv-remote/dist/index.js
+@@ -4,7 +4,7 @@ Object.defineProperty(exports, "__esModule", {
+   value: true
+ });
+ exports.default = exports.RemoteKeyCode = exports.RemoteDirection = exports.AndroidRemote = void 0;
+-require("core-js/modules/es.promise.js");
++// Patched: dropped core-js polyfill requires (see CertificateGenerator.js).
+ var _CertificateGenerator = require("./certificate/CertificateGenerator.js");
+ var _PairingManager = require("./pairing/PairingManager.js");
+ var _RemoteManager = require("./remote/RemoteManager.js");
+@@ -45,7 +45,9 @@ class AndroidRemote extends _events.default {
+       }
+       console.log('AndroidRemote.start()');
+       if (!_this.cert || !_this.cert.key || !_this.cert.cert) {
+-        _this.cert = _CertificateGenerator.CertificateGenerator.generateFull(_this.service_name);
++        // Patched: generateFull() is now async (see CertificateGenerator.js) so it
++        // doesn't freeze the JS thread for the whole 2048-bit RSA keygen.
++        _this.cert = yield _CertificateGenerator.CertificateGenerator.generateFull(_this.service_name);
+         console.log('Before creating PairingManager');
+         // Clean up any existing pairing manager
+         if (_this.pairingManager) {
+@@ -65,6 +67,15 @@ class AndroidRemote extends _events.default {
+       _this.remoteManager.on('current_app', current_app => _this.emit('current_app', current_app));
+       _this.remoteManager.on('ready', () => _this.emit('ready'));
+       _this.remoteManager.on('unpaired', () => _this.emit('unpaired'));
++      _this.remoteManager.on('reconnecting', () => _this.emit('reconnecting'));
++      // Patched: without this, a remoteError from the TV (e.g. an invalid/
++      // unsupported app link) was emitted on remoteManager with zero
++      // listeners attached, and Node's EventEmitter throws synchronously
++      // when 'error' has no listener - crashing the whole app.
++      _this.remoteManager.on('error', error => _this.emit('error', error));
++      // Patched: voice search support - see remote/RemoteManager.js.
++      _this.remoteManager.on('voiceBegin', sessionId => _this.emit('voiceBegin', sessionId));
++      _this.remoteManager.on('voiceEnd', sessionId => _this.emit('voiceEnd', sessionId));
+       yield new Promise(resolve => setTimeout(resolve, 1000));
+       var started = yield _this.remoteManager.start().catch(error => {
+         console.error(error);
+@@ -92,6 +103,24 @@ class AndroidRemote extends _events.default {
+     var _this$remoteManager3;
+     return (_this$remoteManager3 = this.remoteManager) === null || _this$remoteManager3 === void 0 ? void 0 : _this$remoteManager3.sendKey(key, direction);
+   }
++  // Patched: IME text inject - see remote/RemoteManager.js.
++  sendText(text) {
++    var _this$remoteManagerText;
++    return (_this$remoteManagerText = this.remoteManager) === null || _this$remoteManagerText === void 0 ? void 0 : _this$remoteManagerText.sendText(text);
++  }
++  // Patched: voice search support - see remote/RemoteManager.js.
++  sendVoiceBegin(sessionId) {
++    var _this$remoteManager4;
++    return (_this$remoteManager4 = this.remoteManager) === null || _this$remoteManager4 === void 0 ? void 0 : _this$remoteManager4.sendVoiceBegin(sessionId);
++  }
++  sendVoicePayload(sessionId, samples) {
++    var _this$remoteManager5;
++    return (_this$remoteManager5 = this.remoteManager) === null || _this$remoteManager5 === void 0 ? void 0 : _this$remoteManager5.sendVoicePayload(sessionId, samples);
++  }
++  sendVoiceEnd(sessionId) {
++    var _this$remoteManager6;
++    return (_this$remoteManager6 = this.remoteManager) === null || _this$remoteManager6 === void 0 ? void 0 : _this$remoteManager6.sendVoiceEnd(sessionId);
++  }
+   getCertificate() {
+     return {
+       key: this.cert.key,
+diff --git a/node_modules/react-native-androidtv-remote/dist/pairing/PairingManager.js b/node_modules/react-native-androidtv-remote/dist/pairing/PairingManager.js
+index 69d3333..c2c95db 100644
+--- a/node_modules/react-native-androidtv-remote/dist/pairing/PairingManager.js
++++ b/node_modules/react-native-androidtv-remote/dist/pairing/PairingManager.js
+@@ -4,10 +4,7 @@ Object.defineProperty(exports, "__esModule", {
+   value: true
+ });
+ exports.PairingManager = void 0;
+-require("core-js/modules/es.error.cause.js");
+-require("core-js/modules/es.json.stringify.js");
+-require("core-js/modules/es.parse-int.js");
+-require("core-js/modules/es.promise.js");
++// Patched: dropped core-js polyfill requires (see CertificateGenerator.js).
+ var _PairingMessageManager = require("./PairingMessageManager.js");
+ var _nodeForge = _interopRequireDefault(require("node-forge"));
+ var _buffer = require("buffer");
+@@ -28,6 +25,12 @@ class PairingManager extends _events.default {
+     this.service_name = service_name;
+     this.pairingMessageManager = new _PairingMessageManager.PairingMessageManager(systeminfo);
+     this.isCancelled = false;
++    // Patched: track a bad-code destroy so the close handler can reject
++    // start()'s promise instead of resolving(true). Without this, a wrong PIN
++    // still resolved as "paired", so the app moved on to RemoteManager, which
++    // then retried a doomed (unpaired-cert) connection forever - spinner never
++    // stopped and no error ever reached the UI.
++    this.codeInvalid = false;
+   }
+ 
+   /*
+@@ -75,8 +78,13 @@ class PairingManager extends _events.default {
+       var hash = sha256.digest().getBytes();
+       var hash_array = Array.from(hash, c => c.charCodeAt(0) & 0xff);
+       var check = hash_array[0];
++      // Temporary debug logging to diagnose "Code validation failed" - remove once fixed.
++      console.debug('PAIR_DEBUG client_cert modulus=' + client_certificate.modulus + ' exponent=' + client_certificate.exponent);
++      console.debug('PAIR_DEBUG server_cert modulus=' + server_certificate.modulus + ' exponent=' + server_certificate.exponent);
++      console.debug('PAIR_DEBUG code=' + code + ' code_bytes=' + JSON.stringify(code_bytes) + ' check(expected)=' + check + ' got=' + code_bytes[0]);
+       if (check !== code_bytes[0]) {
+         console.error("Code validation failed");
++        _this.codeInvalid = true;
+         _this.client.destroy(new Error("Bad Code"));
+         return false;
+       } else {
+@@ -145,7 +153,11 @@ class PairingManager extends _events.default {
+           }
+         });
+         _this2.client.on('close', hasError => {
+-          if (hasError) {
++          if (_this2.codeInvalid) {
++            console.log('PairingManager.close() bad code entered');
++            _this2.codeInvalid = false;
++            reject(new Error('Incorrect PIN. Please try again with the code shown on your TV.'));
++          } else if (hasError) {
+             console.log('PairingManager.close() failure');
+             reject(false);
+           } else if (_this2.isCancelled) {
+diff --git a/node_modules/react-native-androidtv-remote/dist/pairing/PairingMessageManager.js b/node_modules/react-native-androidtv-remote/dist/pairing/PairingMessageManager.js
+index f9d9b58..4ef23ce 100644
+--- a/node_modules/react-native-androidtv-remote/dist/pairing/PairingMessageManager.js
++++ b/node_modules/react-native-androidtv-remote/dist/pairing/PairingMessageManager.js
+@@ -4,9 +4,7 @@ Object.defineProperty(exports, "__esModule", {
+   value: true
+ });
+ exports.PairingMessageManager = void 0;
+-require("core-js/modules/es.error.cause.js");
+-require("core-js/modules/es.array.iterator.js");
+-require("core-js/modules/web.dom-collections.iterator.js");
++// Patched: dropped core-js polyfill requires (see CertificateGenerator.js).
+ var _protobufjs = _interopRequireDefault(require("protobufjs"));
+ var _pairingmessageProto = _interopRequireDefault(require("./pairingmessage.proto.js"));
+ function _interopRequireDefault(e) { return e && e.__esModule ? e : { default: e }; }
+diff --git a/node_modules/react-native-androidtv-remote/dist/remote/RemoteManager.js b/node_modules/react-native-androidtv-remote/dist/remote/RemoteManager.js
+index 1137978..d27a3c5 100644
+--- a/node_modules/react-native-androidtv-remote/dist/remote/RemoteManager.js
++++ b/node_modules/react-native-androidtv-remote/dist/remote/RemoteManager.js
+@@ -4,8 +4,7 @@ Object.defineProperty(exports, "__esModule", {
+   value: true
+ });
+ exports.RemoteManager = void 0;
+-require("core-js/modules/es.json.stringify.js");
+-require("core-js/modules/es.promise.js");
++// Patched: dropped core-js polyfill requires (see CertificateGenerator.js).
+ var _RemoteMessageManager = require("./RemoteMessageManager.js");
+ var _events = _interopRequireDefault(require("events"));
+ var _buffer = require("buffer");
+@@ -23,6 +22,10 @@ class RemoteManager extends _events.default {
+     this.error = null;
+     this.remoteMessageManager = new _RemoteMessageManager.RemoteMessageManager(systeminfo);
+     this.isManualStop = false;
++    // Patched: TV echoes these back on remoteImeBatchEdit; sendText must
++    // reuse them or the IME edit is ignored.
++    this.imeCounter = 0;
++    this.imeFieldCounter = 0;
+   }
+   start() {
+     var _this = this;
+@@ -52,8 +55,13 @@ class RemoteManager extends _events.default {
+           _this.client.destroy();
+         });
+ 
+-        // Le ping est reçu toutes les 5 secondes
+-        _this.client.setTimeout(10000);
++        // Le ping est reçu toutes les 5 secondes. Bumped from the upstream
++        // 10000ms: some TVs (observed on a Changhong AI PONT set) get busy
++        // enough handling a KEYCODE_SEARCH + voice negotiation that a single
++        // ping gets delayed past 10s, which was destroying the whole remote
++        // connection mid voice-search (not just the voice session) and
++        // forcing a full reconnect.
++        _this.client.setTimeout(30000);
+         _this.client.on("secureConnect", () => {
+           console.debug(_this.host + " Remote secureConnect");
+           resolve(true);
+@@ -77,15 +85,23 @@ class RemoteManager extends _events.default {
+             } else if (message.remoteImeKeyInject) {
+               _this.emit('current_app', message.remoteImeKeyInject.appInfo.appPackage);
+             } else if (message.remoteImeBatchEdit) {
++              // Patched: remember counters for a later sendText.
++              _this.imeCounter = message.remoteImeBatchEdit.imeCounter || 0;
++              _this.imeFieldCounter = message.remoteImeBatchEdit.fieldCounter || 0;
+               console.debug("Receive IME BATCH EDIT" + message.remoteImeBatchEdit);
+             } else if (message.remoteImeShowRequest) {
+               console.debug("Receive IME SHOW REQUEST" + message.remoteImeShowRequest);
+             } else if (message.remoteVoiceBegin) {
+-              //console.debug("Receive VOICE BEGIN" + message.remoteVoiceBegin);
++              // Patched: the TV asks us to start a voice session (in response
++              // to KEYCODE_SEARCH) and gives us the session_id to use for the
++              // ack + all following voice payload/end messages.
++              console.debug(_this.host + ' Receive VOICE BEGIN, session=' + message.remoteVoiceBegin.sessionId);
++              _this.emit('voiceBegin', message.remoteVoiceBegin.sessionId);
+             } else if (message.remoteVoicePayload) {
+               //console.debug("Receive VOICE PAYLOAD" + message.remoteVoicePayload);
+             } else if (message.remoteVoiceEnd) {
+-              //console.debug("Receive VOICE END" + message.remoteVoiceEnd);
++              console.debug(_this.host + ' Receive VOICE END, session=' + message.remoteVoiceEnd.sessionId);
++              _this.emit('voiceEnd', message.remoteVoiceEnd.sessionId);
+             } else if (message.remoteStart) {
+               _this.emit('powered', message.remoteStart.started);
+             } else if (message.remoteSetVolumeLevel) {
+@@ -127,6 +143,7 @@ class RemoteManager extends _events.default {
+               } else if (_this.error.code === "ECONNREFUSED") {
+                 console.log('RemoteManager.close() hasError ECONNREFUSED');
+                 // L'appareil n'est pas encore prêt : on relance
++                _this.emit('reconnecting');
+                 yield new Promise(resolve => setTimeout(resolve, 1000));
+                 yield _this.start().catch(error => {
+                   console.error(error);
+@@ -137,14 +154,21 @@ class RemoteManager extends _events.default {
+               } else {
+                 // Dans le doute on redémarre
+                 console.log('RemoteManager.close() unknown error => start again');
++                _this.emit('reconnecting');
+                 yield new Promise(resolve => setTimeout(resolve, 1000));
+                 yield _this.start().catch(error => {
+                   console.error(error);
+                 });
+               }
+             } else {
+-              // Si pas d'erreur on relance. Si elle s'est éteinte alors une erreur empéchera de relancer encore
++              // Si pas d'erreur on relance. Si elle s'est éteinte alors une erreur empéchera de relancer encore.
++              // Some TVs (observed on a Changhong AI PONT set) close this
++              // connection cleanly ~20s after every voice search use, for
++              // reasons outside our control - we auto-recover here, but emit
++              // 'reconnecting' so the UI can tell the user what's happening
++              // instead of button presses silently doing nothing for ~1-2s.
+               console.log('RemoteManager.close() no error => start again');
++              _this.emit('reconnecting');
+               yield new Promise(resolve => setTimeout(resolve, 1000));
+               yield _this.start().catch(error => {
+                 console.error(error);
+@@ -171,6 +195,24 @@ class RemoteManager extends _events.default {
+   sendAppLink(app_link) {
+     this.client.write(this.remoteMessageManager.createRemoteRemoteAppLinkLaunchRequest(app_link));
+   }
++  // Patched: inject text into the focused TV field via RemoteImeBatchEdit.
++  // Works best when the TV on-screen keyboard is hidden; with OSK open
++  // (e.g. YouTube search) callers should fall back to key events.
++  sendText(text) {
++    if (!text || !this.client) return;
++    this.client.write(this.remoteMessageManager.createRemoteImeBatchEdit(text, this.imeCounter, this.imeFieldCounter));
++  }
++  // Patched: voice search support (see remotemessage.proto.js /
++  // RemoteMessageManager.js patches for the "why").
++  sendVoiceBegin(sessionId) {
++    this.client.write(this.remoteMessageManager.createRemoteVoiceBegin(sessionId));
++  }
++  sendVoicePayload(sessionId, samples) {
++    this.client.write(this.remoteMessageManager.createRemoteVoicePayload(sessionId, samples));
++  }
++  sendVoiceEnd(sessionId) {
++    this.client.write(this.remoteMessageManager.createRemoteVoiceEnd(sessionId));
++  }
+   stop() {
+     this.isManualStop = true;
+     this.client.destroy();
+diff --git a/node_modules/react-native-androidtv-remote/dist/remote/RemoteMessageManager.js b/node_modules/react-native-androidtv-remote/dist/remote/RemoteMessageManager.js
+index b030cec..b57aa89 100644
+--- a/node_modules/react-native-androidtv-remote/dist/remote/RemoteMessageManager.js
++++ b/node_modules/react-native-androidtv-remote/dist/remote/RemoteMessageManager.js
+@@ -4,10 +4,7 @@ Object.defineProperty(exports, "__esModule", {
+   value: true
+ });
+ exports.RemoteMessageManager = void 0;
+-require("core-js/modules/es.error.cause.js");
+-require("core-js/modules/es.array.iterator.js");
+-require("core-js/modules/es.json.stringify.js");
+-require("core-js/modules/web.dom-collections.iterator.js");
++// Patched: dropped core-js polyfill requires (see CertificateGenerator.js).
+ var _protobufjs = _interopRequireDefault(require("protobufjs"));
+ var _remotemessageProto = _interopRequireDefault(require("./remotemessage.proto.js"));
+ function _interopRequireDefault(e) { return e && e.__esModule ? e : { default: e }; }
+@@ -23,14 +20,17 @@ class RemoteMessageManager {
+     this.model = systeminfo.model || 'defaultModel';
+   }
+   create(payload) {
+-    if (!payload.remotePingResponse) {
++    // Patched: skip verbose per-chunk logging for voice payloads - each audio
++    // chunk would otherwise dump its raw sample bytes as JSON, flooding logs.
++    var isVoicePayload = !!payload.remoteVoicePayload;
++    if (!payload.remotePingResponse && !isVoicePayload) {
+       console.debug("Create Remote " + JSON.stringify(payload));
+     }
+     var errMsg = this.RemoteMessage.verify(payload);
+     if (errMsg) throw Error(errMsg);
+     var message = this.RemoteMessage.create(payload);
+     var array = this.RemoteMessage.encodeDelimited(message).finish();
+-    if (!payload.remotePingResponse) {
++    if (!payload.remotePingResponse && !isVoicePayload) {
+       //console.debug("Sending " + Array.from(array));
+       console.debug("Sending " + JSON.stringify(message.toJSON()));
+     }
+@@ -93,6 +93,25 @@ class RemoteMessageManager {
+       }
+     });
+   }
++  // Patched: send a full string into the focused TV text field via IME.
++  // Matches androidtvremote2's send_text (insert=1, start/end = len-1).
++  createRemoteImeBatchEdit(text, imeCounter = 0, fieldCounter = 0) {
++    const paramValue = Math.max(text.length - 1, 0);
++    return this.create({
++      remoteImeBatchEdit: {
++        imeCounter,
++        fieldCounter,
++        editInfo: [{
++          insert: 1,
++          textFieldStatus: {
++            start: paramValue,
++            end: paramValue,
++            value: text
++          }
++        }]
++      }
++    });
++  }
+   createRemoteRemoteAppLinkLaunchRequest(app_link) {
+     return this.create({
+       remoteAppLinkLaunchRequest: {
+@@ -100,6 +119,32 @@ class RemoteMessageManager {
+       }
+     });
+   }
++  // Patched: the upstream proto shipped RemoteVoiceBegin/Payload/End as empty
++  // messages, so voice search could never be acknowledged or streamed. Fields
++  // added to match the real protocol (session_id + samples), see
++  // remotemessage.proto.js.
++  createRemoteVoiceBegin(sessionId) {
++    return this.create({
++      remoteVoiceBegin: {
++        sessionId: sessionId
++      }
++    });
++  }
++  createRemoteVoicePayload(sessionId, samples) {
++    return this.create({
++      remoteVoicePayload: {
++        sessionId: sessionId,
++        samples: samples
++      }
++    });
++  }
++  createRemoteVoiceEnd(sessionId) {
++    return this.create({
++      remoteVoiceEnd: {
++        sessionId: sessionId
++      }
++    });
++  }
+   parse(buffer) {
+     return this.RemoteMessage.decodeDelimited(buffer);
+   }
+diff --git a/node_modules/react-native-androidtv-remote/dist/remote/remotemessage.proto.js b/node_modules/react-native-androidtv-remote/dist/remote/remotemessage.proto.js
+index 56c4667..34099a5 100644
+--- a/node_modules/react-native-androidtv-remote/dist/remote/remotemessage.proto.js
++++ b/node_modules/react-native-androidtv-remote/dist/remote/remotemessage.proto.js
+@@ -4,4 +4,4 @@ Object.defineProperty(exports, "__esModule", {
+   value: true
+ });
+ exports.default = void 0;
+-var _default = exports.default = "\n// remotemessage.proto\nsyntax = \"proto3\";\npackage remote;\n\nmessage RemoteAppLinkLaunchRequest {\n  string app_link = 1;\n}\n\nmessage RemoteResetPreferredAudioDevice {\n\n}\n\nmessage RemoteSetPreferredAudioDevice {\n\n}\n\nmessage RemoteAdjustVolumeLevel {\n\n}\n\nmessage RemoteSetVolumeLevel {\n  uint32 unknown1 = 1;\n  uint32 unknown2 = 2;\n  string player_model = 3;\n  uint32 unknown4 = 4;\n  uint32 unknown5 = 5;\n  uint32 volume_max = 6;\n  uint32 volume_level = 7;\n  bool volume_muted = 8;\n}\n\nmessage RemoteStart {\n  bool started = 1;\n}\n\nmessage RemoteVoiceEnd {\n\n}\n\nmessage RemoteVoicePayload {\n\n}\n\nmessage RemoteVoiceBegin {\n\n}\n\nmessage RemoteTextFieldStatus {\n  int32 counter_field = 1;\n  string value = 2;\n  int32 start = 3;\n  int32 end = 4;\n  int32 int5 = 5;\n  string label = 6;\n}\n\nmessage RemoteImeShowRequest {\n  RemoteTextFieldStatus remote_text_field_status = 2;\n}\n\nmessage RemoteEditInfo {\n  int32 insert = 2;\n}\n\nmessage RemoteImeBatchEdit {\n  int32 ime_counter = 1;\n  int32 field_counter = 2;\n  RemoteEditInfo edit_info = 3;\n}\n\nmessage RemoteAppInfo {\n  int32 counter = 1;\n  int32 int2 = 2;\n  int32 int3 = 3;\n  string int4 = 4;\n  int32 int7 = 7;\n  int32 int8 = 8;\n  string label = 10;\n  string app_package = 12;\n  int32 int13 = 13;\n}\n\nmessage RemoteImeKeyInject {\n  RemoteAppInfo app_info = 1;\n  RemoteTextFieldStatus text_field_status = 2;\n}\n\nenum RemoteKeyCode {\n  KEYCODE_UNKNOWN         = 0;\n  KEYCODE_SOFT_LEFT       = 1;\n  KEYCODE_SOFT_RIGHT      = 2;\n  KEYCODE_HOME            = 3;\n  KEYCODE_BACK            = 4;\n  KEYCODE_CALL            = 5;\n  KEYCODE_ENDCALL         = 6;\n  KEYCODE_0               = 7;\n  KEYCODE_1               = 8;\n  KEYCODE_2               = 9;\n  KEYCODE_3               = 10;\n  KEYCODE_4               = 11;\n  KEYCODE_5               = 12;\n  KEYCODE_6               = 13;\n  KEYCODE_7               = 14;\n  KEYCODE_8               = 15;\n  KEYCODE_9               = 16;\n  KEYCODE_STAR            = 17;\n  KEYCODE_POUND           = 18;\n  KEYCODE_DPAD_UP         = 19;\n  KEYCODE_DPAD_DOWN       = 20;\n  KEYCODE_DPAD_LEFT       = 21;\n  KEYCODE_DPAD_RIGHT      = 22;\n  KEYCODE_DPAD_CENTER     = 23;\n  KEYCODE_VOLUME_UP       = 24;\n  KEYCODE_VOLUME_DOWN     = 25;\n  KEYCODE_POWER           = 26;\n  KEYCODE_CAMERA          = 27;\n  KEYCODE_CLEAR           = 28;\n  KEYCODE_A               = 29;\n  KEYCODE_B               = 30;\n  KEYCODE_C               = 31;\n  KEYCODE_D               = 32;\n  KEYCODE_E               = 33;\n  KEYCODE_F               = 34;\n  KEYCODE_G               = 35;\n  KEYCODE_H               = 36;\n  KEYCODE_I               = 37;\n  KEYCODE_J               = 38;\n  KEYCODE_K               = 39;\n  KEYCODE_L               = 40;\n  KEYCODE_M               = 41;\n  KEYCODE_N               = 42;\n  KEYCODE_O               = 43;\n  KEYCODE_P               = 44;\n  KEYCODE_Q               = 45;\n  KEYCODE_R               = 46;\n  KEYCODE_S               = 47;\n  KEYCODE_T               = 48;\n  KEYCODE_U               = 49;\n  KEYCODE_V               = 50;\n  KEYCODE_W               = 51;\n  KEYCODE_X               = 52;\n  KEYCODE_Y               = 53;\n  KEYCODE_Z               = 54;\n  KEYCODE_COMMA           = 55;\n  KEYCODE_PERIOD          = 56;\n  KEYCODE_ALT_LEFT        = 57;\n  KEYCODE_ALT_RIGHT       = 58;\n  KEYCODE_SHIFT_LEFT      = 59;\n  KEYCODE_SHIFT_RIGHT     = 60;\n  KEYCODE_TAB             = 61;\n  KEYCODE_SPACE           = 62;\n  KEYCODE_SYM             = 63;\n  KEYCODE_EXPLORER        = 64;\n  KEYCODE_ENVELOPE        = 65;\n  KEYCODE_ENTER           = 66;\n  KEYCODE_DEL             = 67;\n  KEYCODE_GRAVE           = 68;\n  KEYCODE_MINUS           = 69;\n  KEYCODE_EQUALS          = 70;\n  KEYCODE_LEFT_BRACKET    = 71;\n  KEYCODE_RIGHT_BRACKET   = 72;\n  KEYCODE_BACKSLASH       = 73;\n  KEYCODE_SEMICOLON       = 74;\n  KEYCODE_APOSTROPHE      = 75;\n  KEYCODE_SLASH           = 76;\n  KEYCODE_AT              = 77;\n  KEYCODE_NUM             = 78;\n  KEYCODE_HEADSETHOOK     = 79;\n  KEYCODE_FOCUS           = 80;\n  KEYCODE_PLUS            = 81;\n  KEYCODE_MENU            = 82;\n  KEYCODE_NOTIFICATION    = 83;\n  KEYCODE_SEARCH          = 84;\n  KEYCODE_MEDIA_PLAY_PAUSE= 85;\n  KEYCODE_MEDIA_STOP      = 86;\n  KEYCODE_MEDIA_NEXT      = 87;\n  KEYCODE_MEDIA_PREVIOUS  = 88;\n  KEYCODE_MEDIA_REWIND    = 89;\n  KEYCODE_MEDIA_FAST_FORWARD = 90;\n  KEYCODE_MUTE            = 91;\n  KEYCODE_PAGE_UP         = 92;\n  KEYCODE_PAGE_DOWN       = 93;\n  KEYCODE_PICTSYMBOLS     = 94;\n  KEYCODE_SWITCH_CHARSET  = 95;\n  KEYCODE_BUTTON_A        = 96;\n  KEYCODE_BUTTON_B        = 97;\n  KEYCODE_BUTTON_C        = 98;\n  KEYCODE_BUTTON_X        = 99;\n  KEYCODE_BUTTON_Y        = 100;\n  KEYCODE_BUTTON_Z        = 101;\n  KEYCODE_BUTTON_L1       = 102;\n  KEYCODE_BUTTON_R1       = 103;\n  KEYCODE_BUTTON_L2       = 104;\n  KEYCODE_BUTTON_R2       = 105;\n  KEYCODE_BUTTON_THUMBL   = 106;\n  KEYCODE_BUTTON_THUMBR   = 107;\n  KEYCODE_BUTTON_START    = 108;\n  KEYCODE_BUTTON_SELECT   = 109;\n  KEYCODE_BUTTON_MODE     = 110;\n  KEYCODE_ESCAPE          = 111;\n  KEYCODE_FORWARD_DEL     = 112;\n  KEYCODE_CTRL_LEFT       = 113;\n  KEYCODE_CTRL_RIGHT      = 114;\n  KEYCODE_CAPS_LOCK       = 115;\n  KEYCODE_SCROLL_LOCK     = 116;\n  KEYCODE_META_LEFT       = 117;\n  KEYCODE_META_RIGHT      = 118;\n  KEYCODE_FUNCTION        = 119;\n  KEYCODE_SYSRQ           = 120;\n  KEYCODE_BREAK           = 121;\n  KEYCODE_MOVE_HOME       = 122;\n  KEYCODE_MOVE_END        = 123;\n  KEYCODE_INSERT          = 124;\n  KEYCODE_FORWARD         = 125;\n  KEYCODE_MEDIA_PLAY      = 126;\n  KEYCODE_MEDIA_PAUSE     = 127;\n  KEYCODE_MEDIA_CLOSE     = 128;\n  KEYCODE_MEDIA_EJECT     = 129;\n  KEYCODE_MEDIA_RECORD    = 130;\n  KEYCODE_F1              = 131;\n  KEYCODE_F2              = 132;\n  KEYCODE_F3              = 133;\n  KEYCODE_F4              = 134;\n  KEYCODE_F5              = 135;\n  KEYCODE_F6              = 136;\n  KEYCODE_F7              = 137;\n  KEYCODE_F8              = 138;\n  KEYCODE_F9              = 139;\n  KEYCODE_F10             = 140;\n  KEYCODE_F11             = 141;\n  KEYCODE_F12             = 142;\n  KEYCODE_NUM_LOCK        = 143;\n  KEYCODE_NUMPAD_0        = 144;\n  KEYCODE_NUMPAD_1        = 145;\n  KEYCODE_NUMPAD_2        = 146;\n  KEYCODE_NUMPAD_3        = 147;\n  KEYCODE_NUMPAD_4        = 148;\n  KEYCODE_NUMPAD_5        = 149;\n  KEYCODE_NUMPAD_6        = 150;\n  KEYCODE_NUMPAD_7        = 151;\n  KEYCODE_NUMPAD_8        = 152;\n  KEYCODE_NUMPAD_9        = 153;\n  KEYCODE_NUMPAD_DIVIDE   = 154;\n  KEYCODE_NUMPAD_MULTIPLY = 155;\n  KEYCODE_NUMPAD_SUBTRACT = 156;\n  KEYCODE_NUMPAD_ADD      = 157;\n  KEYCODE_NUMPAD_DOT      = 158;\n  KEYCODE_NUMPAD_COMMA    = 159;\n  KEYCODE_NUMPAD_ENTER    = 160;\n  KEYCODE_NUMPAD_EQUALS   = 161;\n  KEYCODE_NUMPAD_LEFT_PAREN = 162;\n  KEYCODE_NUMPAD_RIGHT_PAREN = 163;\n  KEYCODE_VOLUME_MUTE     = 164;\n  KEYCODE_INFO            = 165;\n  KEYCODE_CHANNEL_UP      = 166;\n  KEYCODE_CHANNEL_DOWN    = 167;\n  KEYCODE_ZOOM_IN         = 168;\n  KEYCODE_ZOOM_OUT        = 169;\n  KEYCODE_TV              = 170;\n  KEYCODE_WINDOW          = 171;\n  KEYCODE_GUIDE           = 172;\n  KEYCODE_DVR             = 173;\n  KEYCODE_BOOKMARK        = 174;\n  KEYCODE_CAPTIONS        = 175;\n  KEYCODE_SETTINGS        = 176;\n  KEYCODE_TV_POWER        = 177;\n  KEYCODE_TV_INPUT        = 178;\n  KEYCODE_STB_POWER       = 179;\n  KEYCODE_STB_INPUT       = 180;\n  KEYCODE_AVR_POWER       = 181;\n  KEYCODE_AVR_INPUT       = 182;\n  KEYCODE_PROG_RED        = 183;\n  KEYCODE_PROG_GREEN      = 184;\n  KEYCODE_PROG_YELLOW     = 185;\n  KEYCODE_PROG_BLUE       = 186;\n  KEYCODE_APP_SWITCH      = 187;\n  KEYCODE_BUTTON_1        = 188;\n  KEYCODE_BUTTON_2        = 189;\n  KEYCODE_BUTTON_3        = 190;\n  KEYCODE_BUTTON_4        = 191;\n  KEYCODE_BUTTON_5        = 192;\n  KEYCODE_BUTTON_6        = 193;\n  KEYCODE_BUTTON_7        = 194;\n  KEYCODE_BUTTON_8        = 195;\n  KEYCODE_BUTTON_9        = 196;\n  KEYCODE_BUTTON_10       = 197;\n  KEYCODE_BUTTON_11       = 198;\n  KEYCODE_BUTTON_12       = 199;\n  KEYCODE_BUTTON_13       = 200;\n  KEYCODE_BUTTON_14       = 201;\n  KEYCODE_BUTTON_15       = 202;\n  KEYCODE_BUTTON_16       = 203;\n  KEYCODE_LANGUAGE_SWITCH = 204;\n  KEYCODE_MANNER_MODE     = 205;\n  KEYCODE_3D_MODE         = 206;\n  KEYCODE_CONTACTS        = 207;\n  KEYCODE_CALENDAR        = 208;\n  KEYCODE_MUSIC           = 209;\n  KEYCODE_CALCULATOR      = 210;\n  KEYCODE_ZENKAKU_HANKAKU = 211;\n  KEYCODE_EISU            = 212;\n  KEYCODE_MUHENKAN        = 213;\n  KEYCODE_HENKAN          = 214;\n  KEYCODE_KATAKANA_HIRAGANA = 215;\n  KEYCODE_YEN             = 216;\n  KEYCODE_RO              = 217;\n  KEYCODE_KANA            = 218;\n  KEYCODE_ASSIST          = 219;\n  KEYCODE_BRIGHTNESS_DOWN = 220;\n  KEYCODE_BRIGHTNESS_UP   = 221;\n  KEYCODE_MEDIA_AUDIO_TRACK = 222;\n  KEYCODE_SLEEP           = 223;\n  KEYCODE_WAKEUP          = 224;\n  KEYCODE_PAIRING         = 225;\n  KEYCODE_MEDIA_TOP_MENU  = 226;\n  KEYCODE_11              = 227;\n  KEYCODE_12              = 228;\n  KEYCODE_LAST_CHANNEL    = 229;\n  KEYCODE_TV_DATA_SERVICE = 230;\n  KEYCODE_VOICE_ASSIST = 231;\n  KEYCODE_TV_RADIO_SERVICE = 232;\n  KEYCODE_TV_TELETEXT = 233;\n  KEYCODE_TV_NUMBER_ENTRY = 234;\n  KEYCODE_TV_TERRESTRIAL_ANALOG = 235;\n  KEYCODE_TV_TERRESTRIAL_DIGITAL = 236;\n  KEYCODE_TV_SATELLITE = 237;\n  KEYCODE_TV_SATELLITE_BS = 238;\n  KEYCODE_TV_SATELLITE_CS = 239;\n  KEYCODE_TV_SATELLITE_SERVICE = 240;\n  KEYCODE_TV_NETWORK = 241;\n  KEYCODE_TV_ANTENNA_CABLE = 242;\n  KEYCODE_TV_INPUT_HDMI_1 = 243;\n  KEYCODE_TV_INPUT_HDMI_2 = 244;\n  KEYCODE_TV_INPUT_HDMI_3 = 245;\n  KEYCODE_TV_INPUT_HDMI_4 = 246;\n  KEYCODE_TV_INPUT_COMPOSITE_1 = 247;\n  KEYCODE_TV_INPUT_COMPOSITE_2 = 248;\n  KEYCODE_TV_INPUT_COMPONENT_1 = 249;\n  KEYCODE_TV_INPUT_COMPONENT_2 = 250;\n  KEYCODE_TV_INPUT_VGA_1 = 251;\n  KEYCODE_TV_AUDIO_DESCRIPTION = 252;\n  KEYCODE_TV_AUDIO_DESCRIPTION_MIX_UP = 253;\n  KEYCODE_TV_AUDIO_DESCRIPTION_MIX_DOWN = 254;\n  KEYCODE_TV_ZOOM_MODE = 255;\n  KEYCODE_TV_CONTENTS_MENU = 256;\n  KEYCODE_TV_MEDIA_CONTEXT_MENU = 257;\n  KEYCODE_TV_TIMER_PROGRAMMING = 258;\n  KEYCODE_HELP = 259;\n  KEYCODE_NAVIGATE_PREVIOUS = 260;\n  KEYCODE_NAVIGATE_NEXT   = 261;\n  KEYCODE_NAVIGATE_IN     = 262;\n  KEYCODE_NAVIGATE_OUT    = 263;\n  KEYCODE_STEM_PRIMARY = 264;\n  KEYCODE_STEM_1 = 265;\n  KEYCODE_STEM_2 = 266;\n  KEYCODE_STEM_3 = 267;\n  KEYCODE_DPAD_UP_LEFT    = 268;\n  KEYCODE_DPAD_DOWN_LEFT  = 269;\n  KEYCODE_DPAD_UP_RIGHT   = 270;\n  KEYCODE_DPAD_DOWN_RIGHT = 271;\n  KEYCODE_MEDIA_SKIP_FORWARD = 272;\n  KEYCODE_MEDIA_SKIP_BACKWARD = 273;\n  KEYCODE_MEDIA_STEP_FORWARD = 274;\n  KEYCODE_MEDIA_STEP_BACKWARD = 275;\n  KEYCODE_SOFT_SLEEP = 276;\n  KEYCODE_CUT = 277;\n  KEYCODE_COPY = 278;\n  KEYCODE_PASTE = 279;\n  KEYCODE_SYSTEM_NAVIGATION_UP = 280;\n  KEYCODE_SYSTEM_NAVIGATION_DOWN = 281;\n  KEYCODE_SYSTEM_NAVIGATION_LEFT = 282;\n  KEYCODE_SYSTEM_NAVIGATION_RIGHT = 283;\n  KEYCODE_ALL_APPS = 284;\n  KEYCODE_REFRESH = 285;\n  KEYCODE_THUMBS_UP = 286;\n  KEYCODE_THUMBS_DOWN = 287;\n  KEYCODE_PROFILE_SWITCH = 288;\n  KEYCODE_VIDEO_APP_1 = 289;\n  KEYCODE_VIDEO_APP_2 = 290;\n  KEYCODE_VIDEO_APP_3 = 291;\n  KEYCODE_VIDEO_APP_4 = 292;\n  KEYCODE_VIDEO_APP_5 = 293;\n  KEYCODE_VIDEO_APP_6 = 294;\n  KEYCODE_VIDEO_APP_7 = 295;\n  KEYCODE_VIDEO_APP_8 = 296;\n  KEYCODE_FEATURED_APP_1 = 297;\n  KEYCODE_FEATURED_APP_2 = 298;\n  KEYCODE_FEATURED_APP_3 = 299;\n  KEYCODE_FEATURED_APP_4 = 300;\n  KEYCODE_DEMO_APP_1 = 301;\n  KEYCODE_DEMO_APP_2 = 302;\n  KEYCODE_DEMO_APP_3 = 303;\n  KEYCODE_DEMO_APP_4 = 304;\n}\n\nenum RemoteDirection {\n  UNKNOWN_DIRECTION = 0;\n  START_LONG = 1;\n  END_LONG = 2;\n  SHORT = 3;\n}\n\nmessage RemoteKeyInject {\n  RemoteKeyCode key_code = 1;\n  RemoteDirection direction = 2;\n}\n\nmessage RemotePingResponse {\n  int32 val1 = 1;\n}\n\nmessage RemotePingRequest {\n  int32 val1 = 1;\n  int32 val2 = 2;\n}\n\nmessage RemoteSetActive {\n  int32 active = 1;\n}\n\nmessage RemoteDeviceInfo {\n  string model = 1;\n  string vendor = 2;\n  int32 unknown1 = 3;\n  string unknown2 = 4;\n  string package_name = 5;\n  string app_version = 6;\n}\n\nmessage RemoteConfigure {\n  int32 code1 = 1;\n  RemoteDeviceInfo device_info = 2;\n}\n\nmessage RemoteError{\n  bool value = 1;\n  RemoteMessage message = 2;\n}\n\nmessage RemoteMessage {\n  RemoteConfigure remote_configure = 1;\n  RemoteSetActive remote_set_active = 2;\n  RemoteError remote_error = 3;\n  RemotePingRequest remote_ping_request = 8;\n  RemotePingResponse remote_ping_response = 9;\n  RemoteKeyInject remote_key_inject = 10;\n  RemoteImeKeyInject remote_ime_key_inject = 20;\n  RemoteImeBatchEdit remote_ime_batch_edit = 21;\n  RemoteImeShowRequest remote_ime_show_request = 22;\n  RemoteVoiceBegin remote_voice_begin = 30;\n  RemoteVoicePayload remote_voice_payload = 31;\n  RemoteVoiceEnd remote_voice_end = 32;\n  RemoteStart remote_start = 40;\n  RemoteSetVolumeLevel remote_set_volume_level = 50;\n  RemoteAdjustVolumeLevel remote_adjust_volume_level = 51;\n  RemoteSetPreferredAudioDevice remote_set_preferred_audio_device = 60;\n  RemoteResetPreferredAudioDevice remote_reset_preferred_audio_device = 61;\n  RemoteAppLinkLaunchRequest remote_app_link_launch_request = 90;\n}\n";
+\ No newline at end of file
++var _default = exports.default = "\n// remotemessage.proto\nsyntax = \"proto3\";\npackage remote;\n\nmessage RemoteAppLinkLaunchRequest {\n  string app_link = 1;\n}\n\nmessage RemoteResetPreferredAudioDevice {\n\n}\n\nmessage RemoteSetPreferredAudioDevice {\n\n}\n\nmessage RemoteAdjustVolumeLevel {\n\n}\n\nmessage RemoteSetVolumeLevel {\n  uint32 unknown1 = 1;\n  uint32 unknown2 = 2;\n  string player_model = 3;\n  uint32 unknown4 = 4;\n  uint32 unknown5 = 5;\n  uint32 volume_max = 6;\n  uint32 volume_level = 7;\n  bool volume_muted = 8;\n}\n\nmessage RemoteStart {\n  bool started = 1;\n}\n\nmessage RemoteVoiceEnd {\n  int32 session_id = 1;\n}\n\nmessage RemoteVoicePayload {\n  int32 session_id = 1;\n  bytes samples = 2;\n}\n\nmessage RemoteVoiceBegin {\n  int32 session_id = 1;\n  string package_name = 2;\n}\n\nmessage RemoteTextFieldStatus {\n  int32 counter_field = 1;\n  string value = 2;\n  int32 start = 3;\n  int32 end = 4;\n  int32 int5 = 5;\n  string label = 6;\n}\n\nmessage RemoteImeShowRequest {\n  RemoteTextFieldStatus remote_text_field_status = 2;\n}\n\n// Patched: upstream RemoteEditInfo only had `insert`, so any sendText payload\n// that included the actual string was silently dropped during protobuf encode.\n// Real protocol (androidtvremote2 / Google TV app) uses RemoteImeObject +\n// repeated edit_info.\nmessage RemoteEditInfo {\n  int32 insert = 1;\n  RemoteImeObject text_field_status = 2;\n}\n\nmessage RemoteImeObject {\n  int32 start = 1;\n  int32 end = 2;\n  string value = 3;\n}\n\nmessage RemoteImeBatchEdit {\n  int32 ime_counter = 1;\n  int32 field_counter = 2;\n  repeated RemoteEditInfo edit_info = 3;\n}\n\nmessage RemoteAppInfo {\n  int32 counter = 1;\n  int32 int2 = 2;\n  int32 int3 = 3;\n  string int4 = 4;\n  int32 int7 = 7;\n  int32 int8 = 8;\n  string label = 10;\n  string app_package = 12;\n  int32 int13 = 13;\n}\n\nmessage RemoteImeKeyInject {\n  RemoteAppInfo app_info = 1;\n  RemoteTextFieldStatus text_field_status = 2;\n}\n\nenum RemoteKeyCode {\n  KEYCODE_UNKNOWN         = 0;\n  KEYCODE_SOFT_LEFT       = 1;\n  KEYCODE_SOFT_RIGHT      = 2;\n  KEYCODE_HOME            = 3;\n  KEYCODE_BACK            = 4;\n  KEYCODE_CALL            = 5;\n  KEYCODE_ENDCALL         = 6;\n  KEYCODE_0               = 7;\n  KEYCODE_1               = 8;\n  KEYCODE_2               = 9;\n  KEYCODE_3               = 10;\n  KEYCODE_4               = 11;\n  KEYCODE_5               = 12;\n  KEYCODE_6               = 13;\n  KEYCODE_7               = 14;\n  KEYCODE_8               = 15;\n  KEYCODE_9               = 16;\n  KEYCODE_STAR            = 17;\n  KEYCODE_POUND           = 18;\n  KEYCODE_DPAD_UP         = 19;\n  KEYCODE_DPAD_DOWN       = 20;\n  KEYCODE_DPAD_LEFT       = 21;\n  KEYCODE_DPAD_RIGHT      = 22;\n  KEYCODE_DPAD_CENTER     = 23;\n  KEYCODE_VOLUME_UP       = 24;\n  KEYCODE_VOLUME_DOWN     = 25;\n  KEYCODE_POWER           = 26;\n  KEYCODE_CAMERA          = 27;\n  KEYCODE_CLEAR           = 28;\n  KEYCODE_A               = 29;\n  KEYCODE_B               = 30;\n  KEYCODE_C               = 31;\n  KEYCODE_D               = 32;\n  KEYCODE_E               = 33;\n  KEYCODE_F               = 34;\n  KEYCODE_G               = 35;\n  KEYCODE_H               = 36;\n  KEYCODE_I               = 37;\n  KEYCODE_J               = 38;\n  KEYCODE_K               = 39;\n  KEYCODE_L               = 40;\n  KEYCODE_M               = 41;\n  KEYCODE_N               = 42;\n  KEYCODE_O               = 43;\n  KEYCODE_P               = 44;\n  KEYCODE_Q               = 45;\n  KEYCODE_R               = 46;\n  KEYCODE_S               = 47;\n  KEYCODE_T               = 48;\n  KEYCODE_U               = 49;\n  KEYCODE_V               = 50;\n  KEYCODE_W               = 51;\n  KEYCODE_X               = 52;\n  KEYCODE_Y               = 53;\n  KEYCODE_Z               = 54;\n  KEYCODE_COMMA           = 55;\n  KEYCODE_PERIOD          = 56;\n  KEYCODE_ALT_LEFT        = 57;\n  KEYCODE_ALT_RIGHT       = 58;\n  KEYCODE_SHIFT_LEFT      = 59;\n  KEYCODE_SHIFT_RIGHT     = 60;\n  KEYCODE_TAB             = 61;\n  KEYCODE_SPACE           = 62;\n  KEYCODE_SYM             = 63;\n  KEYCODE_EXPLORER        = 64;\n  KEYCODE_ENVELOPE        = 65;\n  KEYCODE_ENTER           = 66;\n  KEYCODE_DEL             = 67;\n  KEYCODE_GRAVE           = 68;\n  KEYCODE_MINUS           = 69;\n  KEYCODE_EQUALS          = 70;\n  KEYCODE_LEFT_BRACKET    = 71;\n  KEYCODE_RIGHT_BRACKET   = 72;\n  KEYCODE_BACKSLASH       = 73;\n  KEYCODE_SEMICOLON       = 74;\n  KEYCODE_APOSTROPHE      = 75;\n  KEYCODE_SLASH           = 76;\n  KEYCODE_AT              = 77;\n  KEYCODE_NUM             = 78;\n  KEYCODE_HEADSETHOOK     = 79;\n  KEYCODE_FOCUS           = 80;\n  KEYCODE_PLUS            = 81;\n  KEYCODE_MENU            = 82;\n  KEYCODE_NOTIFICATION    = 83;\n  KEYCODE_SEARCH          = 84;\n  KEYCODE_MEDIA_PLAY_PAUSE= 85;\n  KEYCODE_MEDIA_STOP      = 86;\n  KEYCODE_MEDIA_NEXT      = 87;\n  KEYCODE_MEDIA_PREVIOUS  = 88;\n  KEYCODE_MEDIA_REWIND    = 89;\n  KEYCODE_MEDIA_FAST_FORWARD = 90;\n  KEYCODE_MUTE            = 91;\n  KEYCODE_PAGE_UP         = 92;\n  KEYCODE_PAGE_DOWN       = 93;\n  KEYCODE_PICTSYMBOLS     = 94;\n  KEYCODE_SWITCH_CHARSET  = 95;\n  KEYCODE_BUTTON_A        = 96;\n  KEYCODE_BUTTON_B        = 97;\n  KEYCODE_BUTTON_C        = 98;\n  KEYCODE_BUTTON_X        = 99;\n  KEYCODE_BUTTON_Y        = 100;\n  KEYCODE_BUTTON_Z        = 101;\n  KEYCODE_BUTTON_L1       = 102;\n  KEYCODE_BUTTON_R1       = 103;\n  KEYCODE_BUTTON_L2       = 104;\n  KEYCODE_BUTTON_R2       = 105;\n  KEYCODE_BUTTON_THUMBL   = 106;\n  KEYCODE_BUTTON_THUMBR   = 107;\n  KEYCODE_BUTTON_START    = 108;\n  KEYCODE_BUTTON_SELECT   = 109;\n  KEYCODE_BUTTON_MODE     = 110;\n  KEYCODE_ESCAPE          = 111;\n  KEYCODE_FORWARD_DEL     = 112;\n  KEYCODE_CTRL_LEFT       = 113;\n  KEYCODE_CTRL_RIGHT      = 114;\n  KEYCODE_CAPS_LOCK       = 115;\n  KEYCODE_SCROLL_LOCK     = 116;\n  KEYCODE_META_LEFT       = 117;\n  KEYCODE_META_RIGHT      = 118;\n  KEYCODE_FUNCTION        = 119;\n  KEYCODE_SYSRQ           = 120;\n  KEYCODE_BREAK           = 121;\n  KEYCODE_MOVE_HOME       = 122;\n  KEYCODE_MOVE_END        = 123;\n  KEYCODE_INSERT          = 124;\n  KEYCODE_FORWARD         = 125;\n  KEYCODE_MEDIA_PLAY      = 126;\n  KEYCODE_MEDIA_PAUSE     = 127;\n  KEYCODE_MEDIA_CLOSE     = 128;\n  KEYCODE_MEDIA_EJECT     = 129;\n  KEYCODE_MEDIA_RECORD    = 130;\n  KEYCODE_F1              = 131;\n  KEYCODE_F2              = 132;\n  KEYCODE_F3              = 133;\n  KEYCODE_F4              = 134;\n  KEYCODE_F5              = 135;\n  KEYCODE_F6              = 136;\n  KEYCODE_F7              = 137;\n  KEYCODE_F8              = 138;\n  KEYCODE_F9              = 139;\n  KEYCODE_F10             = 140;\n  KEYCODE_F11             = 141;\n  KEYCODE_F12             = 142;\n  KEYCODE_NUM_LOCK        = 143;\n  KEYCODE_NUMPAD_0        = 144;\n  KEYCODE_NUMPAD_1        = 145;\n  KEYCODE_NUMPAD_2        = 146;\n  KEYCODE_NUMPAD_3        = 147;\n  KEYCODE_NUMPAD_4        = 148;\n  KEYCODE_NUMPAD_5        = 149;\n  KEYCODE_NUMPAD_6        = 150;\n  KEYCODE_NUMPAD_7        = 151;\n  KEYCODE_NUMPAD_8        = 152;\n  KEYCODE_NUMPAD_9        = 153;\n  KEYCODE_NUMPAD_DIVIDE   = 154;\n  KEYCODE_NUMPAD_MULTIPLY = 155;\n  KEYCODE_NUMPAD_SUBTRACT = 156;\n  KEYCODE_NUMPAD_ADD      = 157;\n  KEYCODE_NUMPAD_DOT      = 158;\n  KEYCODE_NUMPAD_COMMA    = 159;\n  KEYCODE_NUMPAD_ENTER    = 160;\n  KEYCODE_NUMPAD_EQUALS   = 161;\n  KEYCODE_NUMPAD_LEFT_PAREN = 162;\n  KEYCODE_NUMPAD_RIGHT_PAREN = 163;\n  KEYCODE_VOLUME_MUTE     = 164;\n  KEYCODE_INFO            = 165;\n  KEYCODE_CHANNEL_UP      = 166;\n  KEYCODE_CHANNEL_DOWN    = 167;\n  KEYCODE_ZOOM_IN         = 168;\n  KEYCODE_ZOOM_OUT        = 169;\n  KEYCODE_TV              = 170;\n  KEYCODE_WINDOW          = 171;\n  KEYCODE_GUIDE           = 172;\n  KEYCODE_DVR             = 173;\n  KEYCODE_BOOKMARK        = 174;\n  KEYCODE_CAPTIONS        = 175;\n  KEYCODE_SETTINGS        = 176;\n  KEYCODE_TV_POWER        = 177;\n  KEYCODE_TV_INPUT        = 178;\n  KEYCODE_STB_POWER       = 179;\n  KEYCODE_STB_INPUT       = 180;\n  KEYCODE_AVR_POWER       = 181;\n  KEYCODE_AVR_INPUT       = 182;\n  KEYCODE_PROG_RED        = 183;\n  KEYCODE_PROG_GREEN      = 184;\n  KEYCODE_PROG_YELLOW     = 185;\n  KEYCODE_PROG_BLUE       = 186;\n  KEYCODE_APP_SWITCH      = 187;\n  KEYCODE_BUTTON_1        = 188;\n  KEYCODE_BUTTON_2        = 189;\n  KEYCODE_BUTTON_3        = 190;\n  KEYCODE_BUTTON_4        = 191;\n  KEYCODE_BUTTON_5        = 192;\n  KEYCODE_BUTTON_6        = 193;\n  KEYCODE_BUTTON_7        = 194;\n  KEYCODE_BUTTON_8        = 195;\n  KEYCODE_BUTTON_9        = 196;\n  KEYCODE_BUTTON_10       = 197;\n  KEYCODE_BUTTON_11       = 198;\n  KEYCODE_BUTTON_12       = 199;\n  KEYCODE_BUTTON_13       = 200;\n  KEYCODE_BUTTON_14       = 201;\n  KEYCODE_BUTTON_15       = 202;\n  KEYCODE_BUTTON_16       = 203;\n  KEYCODE_LANGUAGE_SWITCH = 204;\n  KEYCODE_MANNER_MODE     = 205;\n  KEYCODE_3D_MODE         = 206;\n  KEYCODE_CONTACTS        = 207;\n  KEYCODE_CALENDAR        = 208;\n  KEYCODE_MUSIC           = 209;\n  KEYCODE_CALCULATOR      = 210;\n  KEYCODE_ZENKAKU_HANKAKU = 211;\n  KEYCODE_EISU            = 212;\n  KEYCODE_MUHENKAN        = 213;\n  KEYCODE_HENKAN          = 214;\n  KEYCODE_KATAKANA_HIRAGANA = 215;\n  KEYCODE_YEN             = 216;\n  KEYCODE_RO              = 217;\n  KEYCODE_KANA            = 218;\n  KEYCODE_ASSIST          = 219;\n  KEYCODE_BRIGHTNESS_DOWN = 220;\n  KEYCODE_BRIGHTNESS_UP   = 221;\n  KEYCODE_MEDIA_AUDIO_TRACK = 222;\n  KEYCODE_SLEEP           = 223;\n  KEYCODE_WAKEUP          = 224;\n  KEYCODE_PAIRING         = 225;\n  KEYCODE_MEDIA_TOP_MENU  = 226;\n  KEYCODE_11              = 227;\n  KEYCODE_12              = 228;\n  KEYCODE_LAST_CHANNEL    = 229;\n  KEYCODE_TV_DATA_SERVICE = 230;\n  KEYCODE_VOICE_ASSIST = 231;\n  KEYCODE_TV_RADIO_SERVICE = 232;\n  KEYCODE_TV_TELETEXT = 233;\n  KEYCODE_TV_NUMBER_ENTRY = 234;\n  KEYCODE_TV_TERRESTRIAL_ANALOG = 235;\n  KEYCODE_TV_TERRESTRIAL_DIGITAL = 236;\n  KEYCODE_TV_SATELLITE = 237;\n  KEYCODE_TV_SATELLITE_BS = 238;\n  KEYCODE_TV_SATELLITE_CS = 239;\n  KEYCODE_TV_SATELLITE_SERVICE = 240;\n  KEYCODE_TV_NETWORK = 241;\n  KEYCODE_TV_ANTENNA_CABLE = 242;\n  KEYCODE_TV_INPUT_HDMI_1 = 243;\n  KEYCODE_TV_INPUT_HDMI_2 = 244;\n  KEYCODE_TV_INPUT_HDMI_3 = 245;\n  KEYCODE_TV_INPUT_HDMI_4 = 246;\n  KEYCODE_TV_INPUT_COMPOSITE_1 = 247;\n  KEYCODE_TV_INPUT_COMPOSITE_2 = 248;\n  KEYCODE_TV_INPUT_COMPONENT_1 = 249;\n  KEYCODE_TV_INPUT_COMPONENT_2 = 250;\n  KEYCODE_TV_INPUT_VGA_1 = 251;\n  KEYCODE_TV_AUDIO_DESCRIPTION = 252;\n  KEYCODE_TV_AUDIO_DESCRIPTION_MIX_UP = 253;\n  KEYCODE_TV_AUDIO_DESCRIPTION_MIX_DOWN = 254;\n  KEYCODE_TV_ZOOM_MODE = 255;\n  KEYCODE_TV_CONTENTS_MENU = 256;\n  KEYCODE_TV_MEDIA_CONTEXT_MENU = 257;\n  KEYCODE_TV_TIMER_PROGRAMMING = 258;\n  KEYCODE_HELP = 259;\n  KEYCODE_NAVIGATE_PREVIOUS = 260;\n  KEYCODE_NAVIGATE_NEXT   = 261;\n  KEYCODE_NAVIGATE_IN     = 262;\n  KEYCODE_NAVIGATE_OUT    = 263;\n  KEYCODE_STEM_PRIMARY = 264;\n  KEYCODE_STEM_1 = 265;\n  KEYCODE_STEM_2 = 266;\n  KEYCODE_STEM_3 = 267;\n  KEYCODE_DPAD_UP_LEFT    = 268;\n  KEYCODE_DPAD_DOWN_LEFT  = 269;\n  KEYCODE_DPAD_UP_RIGHT   = 270;\n  KEYCODE_DPAD_DOWN_RIGHT = 271;\n  KEYCODE_MEDIA_SKIP_FORWARD = 272;\n  KEYCODE_MEDIA_SKIP_BACKWARD = 273;\n  KEYCODE_MEDIA_STEP_FORWARD = 274;\n  KEYCODE_MEDIA_STEP_BACKWARD = 275;\n  KEYCODE_SOFT_SLEEP = 276;\n  KEYCODE_CUT = 277;\n  KEYCODE_COPY = 278;\n  KEYCODE_PASTE = 279;\n  KEYCODE_SYSTEM_NAVIGATION_UP = 280;\n  KEYCODE_SYSTEM_NAVIGATION_DOWN = 281;\n  KEYCODE_SYSTEM_NAVIGATION_LEFT = 282;\n  KEYCODE_SYSTEM_NAVIGATION_RIGHT = 283;\n  KEYCODE_ALL_APPS = 284;\n  KEYCODE_REFRESH = 285;\n  KEYCODE_THUMBS_UP = 286;\n  KEYCODE_THUMBS_DOWN = 287;\n  KEYCODE_PROFILE_SWITCH = 288;\n  KEYCODE_VIDEO_APP_1 = 289;\n  KEYCODE_VIDEO_APP_2 = 290;\n  KEYCODE_VIDEO_APP_3 = 291;\n  KEYCODE_VIDEO_APP_4 = 292;\n  KEYCODE_VIDEO_APP_5 = 293;\n  KEYCODE_VIDEO_APP_6 = 294;\n  KEYCODE_VIDEO_APP_7 = 295;\n  KEYCODE_VIDEO_APP_8 = 296;\n  KEYCODE_FEATURED_APP_1 = 297;\n  KEYCODE_FEATURED_APP_2 = 298;\n  KEYCODE_FEATURED_APP_3 = 299;\n  KEYCODE_FEATURED_APP_4 = 300;\n  KEYCODE_DEMO_APP_1 = 301;\n  KEYCODE_DEMO_APP_2 = 302;\n  KEYCODE_DEMO_APP_3 = 303;\n  KEYCODE_DEMO_APP_4 = 304;\n}\n\nenum RemoteDirection {\n  UNKNOWN_DIRECTION = 0;\n  START_LONG = 1;\n  END_LONG = 2;\n  SHORT = 3;\n}\n\nmessage RemoteKeyInject {\n  RemoteKeyCode key_code = 1;\n  RemoteDirection direction = 2;\n}\n\nmessage RemotePingResponse {\n  int32 val1 = 1;\n}\n\nmessage RemotePingRequest {\n  int32 val1 = 1;\n  int32 val2 = 2;\n}\n\nmessage RemoteSetActive {\n  int32 active = 1;\n}\n\nmessage RemoteDeviceInfo {\n  string model = 1;\n  string vendor = 2;\n  int32 unknown1 = 3;\n  string unknown2 = 4;\n  string package_name = 5;\n  string app_version = 6;\n}\n\nmessage RemoteConfigure {\n  int32 code1 = 1;\n  RemoteDeviceInfo device_info = 2;\n}\n\nmessage RemoteError{\n  bool value = 1;\n  RemoteMessage message = 2;\n}\n\nmessage RemoteMessage {\n  RemoteConfigure remote_configure = 1;\n  RemoteSetActive remote_set_active = 2;\n  RemoteError remote_error = 3;\n  RemotePingRequest remote_ping_request = 8;\n  RemotePingResponse remote_ping_response = 9;\n  RemoteKeyInject remote_key_inject = 10;\n  RemoteImeKeyInject remote_ime_key_inject = 20;\n  RemoteImeBatchEdit remote_ime_batch_edit = 21;\n  RemoteImeShowRequest remote_ime_show_request = 22;\n  RemoteVoiceBegin remote_voice_begin = 30;\n  RemoteVoicePayload remote_voice_payload = 31;\n  RemoteVoiceEnd remote_voice_end = 32;\n  RemoteStart remote_start = 40;\n  RemoteSetVolumeLevel remote_set_volume_level = 50;\n  RemoteAdjustVolumeLevel remote_adjust_volume_level = 51;\n  RemoteSetPreferredAudioDevice remote_set_preferred_audio_device = 60;\n  RemoteResetPreferredAudioDevice remote_reset_preferred_audio_device = 61;\n  RemoteAppLinkLaunchRequest remote_app_link_launch_request = 90;\n}\n";
+diff --git a/node_modules/react-native-androidtv-remote/src/certificate/CertificateGenerator.js b/node_modules/react-native-androidtv-remote/src/certificate/CertificateGenerator.js
+index 26b043f..2bd2086 100644
+--- a/node_modules/react-native-androidtv-remote/src/certificate/CertificateGenerator.js
++++ b/node_modules/react-native-androidtv-remote/src/certificate/CertificateGenerator.js
+@@ -1,22 +1,13 @@
+ import forge from "node-forge"
+-import modPow from 'react-native-modpow'
+ 
+ export class CertificateGenerator {
+ 
+     static generateFull(name) {
+ 
+         console.log(`Entering generateFull(${name})`);
+-        console.log('modPow: ', modPow);
+-
+-        forge.jsbn.BigInteger.prototype.modPow = function nativeModPow(e, m) {
+-            const result = modPow({
+-                target: this.toString(16),
+-                value: e.toString(16),
+-                modifier: m.toString(16)
+-            });
+-
+-            return new forge.jsbn.BigInteger(result, 16);
+-        };
++        // Patched: dropped the react-native-modpow native acceleration
++        // (its Android build no longer compiles with modern AGP) in
++        // favor of node-forge's pure-JS BigInteger.modPow.
+ 
+         let date = new Date();
+         date.setUTCFullYear(2021);
+diff --git a/node_modules/react-native-androidtv-remote/src/index.js b/node_modules/react-native-androidtv-remote/src/index.js
+index f95b18f..2900e67 100644
+--- a/node_modules/react-native-androidtv-remote/src/index.js
++++ b/node_modules/react-native-androidtv-remote/src/index.js
+@@ -71,6 +71,16 @@ export class AndroidRemote extends EventEmitter {
+         this.remoteManager.on('ready', () => this.emit('ready'));
+ 
+         this.remoteManager.on('unpaired', () => this.emit('unpaired'));
++        this.remoteManager.on('reconnecting', () => this.emit('reconnecting'));
++        // Patched: without this, a remoteError from the TV (e.g. an invalid/
++        // unsupported app link) was emitted on remoteManager with zero
++        // listeners attached, and Node's EventEmitter throws synchronously
++        // when 'error' has no listener - crashing the whole app.
++        this.remoteManager.on('error', (error) => this.emit('error', error));
++
++        // Patched: voice search support - see remote/RemoteManager.js.
++        this.remoteManager.on('voiceBegin', (sessionId) => this.emit('voiceBegin', sessionId));
++        this.remoteManager.on('voiceEnd', (sessionId) => this.emit('voiceEnd', sessionId));
+ 
+         await new Promise(resolve => setTimeout(resolve, 1000));
+ 
+@@ -101,6 +111,24 @@ export class AndroidRemote extends EventEmitter {
+         return this.remoteManager?.sendKey(key, direction);
+     }
+ 
++    // Patched: IME text inject - see remote/RemoteManager.js.
++    sendText(text) {
++        return this.remoteManager?.sendText(text);
++    }
++
++    // Patched: voice search support - see remote/RemoteManager.js.
++    sendVoiceBegin(sessionId) {
++        return this.remoteManager?.sendVoiceBegin(sessionId);
++    }
++
++    sendVoicePayload(sessionId, samples) {
++        return this.remoteManager?.sendVoicePayload(sessionId, samples);
++    }
++
++    sendVoiceEnd(sessionId) {
++        return this.remoteManager?.sendVoiceEnd(sessionId);
++    }
++
+     getCertificate() {
+         return {
+             key: this.cert.key,
+diff --git a/node_modules/react-native-androidtv-remote/src/remote/RemoteManager.js b/node_modules/react-native-androidtv-remote/src/remote/RemoteManager.js
+index 076e8f2..e7064d6 100644
+--- a/node_modules/react-native-androidtv-remote/src/remote/RemoteManager.js
++++ b/node_modules/react-native-androidtv-remote/src/remote/RemoteManager.js
+@@ -14,6 +14,10 @@ class RemoteManager extends EventEmitter {
+         this.error = null;
+         this.remoteMessageManager = new RemoteMessageManager(systeminfo);
+         this.isManualStop = false;
++        // Patched: TV echoes these back on remoteImeBatchEdit; sendText must
++        // reuse them or the IME edit is ignored.
++        this.imeCounter = 0;
++        this.imeFieldCounter = 0;
+     }
+ 
+     async start() {
+@@ -45,8 +49,13 @@ class RemoteManager extends EventEmitter {
+                 this.client.destroy();
+             });
+ 
+-            // Le ping est reçu toutes les 5 secondes
+-            this.client.setTimeout(10000);
++            // Le ping est reçu toutes les 5 secondes. Bumped from the
++            // upstream 10000ms: some TVs (observed on a Changhong AI PONT
++            // set) get busy enough handling a KEYCODE_SEARCH + voice
++            // negotiation that a single ping gets delayed past 10s, which
++            // was destroying the whole remote connection mid voice-search
++            // (not just the voice session) and forcing a full reconnect.
++            this.client.setTimeout(30000);
+ 
+             this.client.on("secureConnect", () => {
+                 console.debug(this.host + " Remote secureConnect");
+@@ -86,19 +95,28 @@ class RemoteManager extends EventEmitter {
+                         this.emit('current_app', message.remoteImeKeyInject.appInfo.appPackage);
+                     }
+                     else if(message.remoteImeBatchEdit){
++                        // Patched: remember counters for a later sendText.
++                        this.imeCounter = message.remoteImeBatchEdit.imeCounter || 0;
++                        this.imeFieldCounter = message.remoteImeBatchEdit.fieldCounter || 0;
+                         console.debug("Receive IME BATCH EDIT" + message.remoteImeBatchEdit);
+                     }
+                     else if(message.remoteImeShowRequest){
+                         console.debug("Receive IME SHOW REQUEST" + message.remoteImeShowRequest);
+                     }
+                     else if(message.remoteVoiceBegin){
+-                        //console.debug("Receive VOICE BEGIN" + message.remoteVoiceBegin);
++                        // Patched: the TV asks us to start a voice session (in
++                        // response to KEYCODE_SEARCH) and gives us the
++                        // session_id to use for the ack + all following voice
++                        // payload/end messages.
++                        console.debug(this.host + ' Receive VOICE BEGIN, session=' + message.remoteVoiceBegin.sessionId);
++                        this.emit('voiceBegin', message.remoteVoiceBegin.sessionId);
+                     }
+                     else if(message.remoteVoicePayload){
+                         //console.debug("Receive VOICE PAYLOAD" + message.remoteVoicePayload);
+                     }
+                     else if(message.remoteVoiceEnd){
+-                        //console.debug("Receive VOICE END" + message.remoteVoiceEnd);
++                        console.debug(this.host + ' Receive VOICE END, session=' + message.remoteVoiceEnd.sessionId);
++                        this.emit('voiceEnd', message.remoteVoiceEnd.sessionId);
+                     }
+                     else if(message.remoteStart){
+                         this.emit('powered', message.remoteStart.started);
+@@ -145,6 +163,7 @@ class RemoteManager extends EventEmitter {
+                     else if(this.error.code === "ECONNREFUSED"){
+                         console.log('RemoteManager.close() hasError ECONNREFUSED');
+                         // L'appareil n'est pas encore prêt : on relance
++                        this.emit('reconnecting');
+                         await new Promise(resolve => setTimeout(resolve, 1000));
+                         await this.start().catch((error) => {
+                             console.error(error);
+@@ -157,6 +176,7 @@ class RemoteManager extends EventEmitter {
+                     else{
+                         // Dans le doute on redémarre
+                         console.log('RemoteManager.close() unknown error => start again');
++                        this.emit('reconnecting');
+                         await new Promise(resolve => setTimeout(resolve, 1000));
+                         await this.start().catch((error) => {
+                             console.error(error);
+@@ -164,8 +184,15 @@ class RemoteManager extends EventEmitter {
+                     }
+                 }
+                 else {
+-                    // Si pas d'erreur on relance. Si elle s'est éteinte alors une erreur empéchera de relancer encore
++                    // Si pas d'erreur on relance. Si elle s'est éteinte alors une erreur empéchera de relancer encore.
++                    // Some TVs (observed on a Changhong AI PONT set) close this
++                    // connection cleanly ~20s after every voice search use, for
++                    // reasons outside our control - we auto-recover here, but
++                    // emit 'reconnecting' so the UI can tell the user what's
++                    // happening instead of button presses silently doing
++                    // nothing for ~1-2s.
+                     console.log('RemoteManager.close() no error => start again');
++                    this.emit('reconnecting');
+                     await new Promise(resolve => setTimeout(resolve, 1000));
+                     await this.start().catch((error) => {
+                         console.error(error);
+@@ -197,6 +224,32 @@ class RemoteManager extends EventEmitter {
+         this.client.write(this.remoteMessageManager.createRemoteRemoteAppLinkLaunchRequest(app_link));
+     }
+ 
++    // Patched: inject text into the focused TV field via RemoteImeBatchEdit.
++    // Works best when the TV on-screen keyboard is hidden; with OSK open
++    // (e.g. YouTube search) callers should fall back to key events.
++    sendText(text){
++        if (!text || !this.client) return;
++        this.client.write(this.remoteMessageManager.createRemoteImeBatchEdit(
++            text,
++            this.imeCounter,
++            this.imeFieldCounter,
++        ));
++    }
++
++    // Patched: voice search support (see remotemessage.proto.js /
++    // RemoteMessageManager.js patches for the "why").
++    sendVoiceBegin(sessionId){
++        this.client.write(this.remoteMessageManager.createRemoteVoiceBegin(sessionId));
++    }
++
++    sendVoicePayload(sessionId, samples){
++        this.client.write(this.remoteMessageManager.createRemoteVoicePayload(sessionId, samples));
++    }
++
++    sendVoiceEnd(sessionId){
++        this.client.write(this.remoteMessageManager.createRemoteVoiceEnd(sessionId));
++    }
++
+     stop(){
+         this.isManualStop = true;
+         this.client.destroy();
+diff --git a/node_modules/react-native-androidtv-remote/src/remote/RemoteMessageManager.js b/node_modules/react-native-androidtv-remote/src/remote/RemoteMessageManager.js
+index 38d5ca0..0804390 100644
+--- a/node_modules/react-native-androidtv-remote/src/remote/RemoteMessageManager.js
++++ b/node_modules/react-native-androidtv-remote/src/remote/RemoteMessageManager.js
+@@ -15,7 +15,10 @@ class RemoteMessageManager {
+     }
+ 
+     create(payload){
+-        if(!payload.remotePingResponse){
++        // Patched: skip verbose per-chunk logging for voice payloads - each
++        // audio chunk would otherwise dump its raw sample bytes as JSON.
++        const isVoicePayload = !!payload.remoteVoicePayload;
++        if(!payload.remotePingResponse && !isVoicePayload){
+             console.debug("Create Remote " + JSON.stringify(payload));
+         }
+ 
+@@ -27,7 +30,7 @@ class RemoteMessageManager {
+ 
+         let array = this.RemoteMessage.encodeDelimited(message).finish()
+ 
+-        if(!payload.remotePingResponse){
++        if(!payload.remotePingResponse && !isVoicePayload){
+             //console.debug("Sending " + Array.from(array));
+             console.debug("Sending " + JSON.stringify(message.toJSON()));
+         }
+@@ -99,6 +102,26 @@ class RemoteMessageManager {
+         });
+     }
+ 
++    // Patched: send a full string into the focused TV text field via IME.
++    // Matches androidtvremote2's send_text (insert=1, start/end = len-1).
++    createRemoteImeBatchEdit(text, imeCounter = 0, fieldCounter = 0) {
++        const paramValue = Math.max(text.length - 1, 0);
++        return this.create({
++            remoteImeBatchEdit: {
++                imeCounter,
++                fieldCounter,
++                editInfo: [{
++                    insert: 1,
++                    textFieldStatus: {
++                        start: paramValue,
++                        end: paramValue,
++                        value: text,
++                    },
++                }],
++            },
++        });
++    }
++
+     createRemoteRemoteAppLinkLaunchRequest(app_link) {
+         return this.create({
+             remoteAppLinkLaunchRequest : {
+@@ -107,6 +130,35 @@ class RemoteMessageManager {
+         });
+     }
+ 
++    // Patched: the upstream proto shipped RemoteVoiceBegin/Payload/End as
++    // empty messages, so voice search could never be acknowledged or
++    // streamed. Fields added to match the real protocol (session_id +
++    // samples), see remotemessage.proto.js.
++    createRemoteVoiceBegin(sessionId) {
++        return this.create({
++            remoteVoiceBegin: {
++                sessionId: sessionId,
++            }
++        });
++    }
++
++    createRemoteVoicePayload(sessionId, samples) {
++        return this.create({
++            remoteVoicePayload: {
++                sessionId: sessionId,
++                samples: samples,
++            }
++        });
++    }
++
++    createRemoteVoiceEnd(sessionId) {
++        return this.create({
++            remoteVoiceEnd: {
++                sessionId: sessionId,
++            }
++        });
++    }
++
+     parse(buffer){
+         return this.RemoteMessage.decodeDelimited(buffer);
+     }
+diff --git a/node_modules/react-native-androidtv-remote/src/remote/remotemessage.proto.js b/node_modules/react-native-androidtv-remote/src/remote/remotemessage.proto.js
+index 396e882..a696ea0 100644
+--- a/node_modules/react-native-androidtv-remote/src/remote/remotemessage.proto.js
++++ b/node_modules/react-native-androidtv-remote/src/remote/remotemessage.proto.js
+@@ -36,15 +36,17 @@ message RemoteStart {
+ }
+ 
+ message RemoteVoiceEnd {
+-
++  int32 session_id = 1;
+ }
+ 
+ message RemoteVoicePayload {
+-
++  int32 session_id = 1;
++  bytes samples = 2;
+ }
+ 
+ message RemoteVoiceBegin {
+-
++  int32 session_id = 1;
++  string package_name = 2;
+ }
+ 
+ message RemoteTextFieldStatus {
+@@ -60,14 +62,25 @@ message RemoteImeShowRequest {
+   RemoteTextFieldStatus remote_text_field_status = 2;
+ }
+ 
++// Patched: upstream RemoteEditInfo only had `insert`, so any sendText payload
++// that included the actual string was silently dropped during protobuf encode.
++// Real protocol (androidtvremote2 / Google TV app) uses RemoteImeObject +
++// repeated edit_info.
+ message RemoteEditInfo {
+-  int32 insert = 2;
++  int32 insert = 1;
++  RemoteImeObject text_field_status = 2;
++}
++
++message RemoteImeObject {
++  int32 start = 1;
++  int32 end = 2;
++  string value = 3;
+ }
+ 
+ message RemoteImeBatchEdit {
+   int32 ime_counter = 1;
+   int32 field_counter = 2;
+-  RemoteEditInfo edit_info = 3;
++  repeated RemoteEditInfo edit_info = 3;
+ }
+ 
+ message RemoteAppInfo {

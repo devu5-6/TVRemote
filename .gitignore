@@ -39,3 +39,15 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# local gradle cache (created during troubleshooting)
+/.gradle-home
+
+# device / adb debug captures
+device_log*.txt
+live_log.txt
+logcat*.txt
+*.log
+
+# local voice debug recordings
+*.wav

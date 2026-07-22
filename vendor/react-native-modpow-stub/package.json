@@ -1,0 +1,6 @@
+{
+  "name": "react-native-modpow",
+  "version": "1.1.0",
+  "description": "No-op stub. The real react-native-modpow can't build with modern Android Gradle Plugin versions (its android/build.gradle still calls the removed jcenter() repository). react-native-androidtv-remote only uses it as an optional RSA modPow speed-up; node-forge's pure-JS modPow is used instead.",
+  "main": "index.js"
+}
