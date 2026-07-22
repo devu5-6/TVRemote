@@ -4,11 +4,13 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '../theme';
 import type { RemoteKey } from '../types/remote';
-import { TipPressable } from './TipPressable';
+import { TipPressable, pressedIconColor } from './TipPressable';
 
 const DIAMETER = 260;
 const CENTER_SIZE = 92;
 const ARM_SIZE = 76;
+const RING_BORDER = 2;
+const DPAD_GRAY = '#1A2338';
 
 type DPadProps = {
   onKeyPress: (key: RemoteKey) => void;
@@ -17,53 +19,73 @@ type DPadProps = {
 export function DPad({ onKeyPress }: DPadProps) {
   return (
     <View style={styles.outer}>
-      <View style={styles.ring} />
+      <LinearGradient
+        colors={[colors.primary, colors.accent, '#A78BFA', colors.danger, colors.primary]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.ringGradient}
+      >
+        <View style={styles.ringInner} />
+      </LinearGradient>
 
       <TipPressable
         tip="Up"
         tipPlacement="bottom"
         wrapperStyle={[styles.arm, styles.armUp]}
-        style={({ pressed }) => [styles.armHit, pressed && styles.armPressed]}
+        style={styles.armHit}
         onPress={() => onKeyPress('UP')}
         hitSlop={8}
       >
-        <Ionicons name="chevron-up" size={26} color={colors.textPrimary} />
+        {({ pressed }) => (
+          <Ionicons name="chevron-up" size={26} color={pressed ? pressedIconColor : colors.textPrimary} />
+        )}
       </TipPressable>
 
       <TipPressable
         tip="Down"
         wrapperStyle={[styles.arm, styles.armDown]}
-        style={({ pressed }) => [styles.armHit, pressed && styles.armPressed]}
+        style={styles.armHit}
         onPress={() => onKeyPress('DOWN')}
         hitSlop={8}
       >
-        <Ionicons name="chevron-down" size={26} color={colors.textPrimary} />
+        {({ pressed }) => (
+          <Ionicons name="chevron-down" size={26} color={pressed ? pressedIconColor : colors.textPrimary} />
+        )}
       </TipPressable>
 
       <TipPressable
         tip="Left"
         wrapperStyle={[styles.arm, styles.armLeft]}
-        style={({ pressed }) => [styles.armHit, pressed && styles.armPressed]}
+        style={styles.armHit}
         onPress={() => onKeyPress('LEFT')}
         hitSlop={8}
       >
-        <Ionicons name="chevron-back" size={26} color={colors.textPrimary} />
+        {({ pressed }) => (
+          <Ionicons name="chevron-back" size={26} color={pressed ? pressedIconColor : colors.textPrimary} />
+        )}
       </TipPressable>
 
       <TipPressable
         tip="Right"
         wrapperStyle={[styles.arm, styles.armRight]}
-        style={({ pressed }) => [styles.armHit, pressed && styles.armPressed]}
+        style={styles.armHit}
         onPress={() => onKeyPress('RIGHT')}
         hitSlop={8}
       >
-        <Ionicons name="chevron-forward" size={26} color={colors.textPrimary} />
+        {({ pressed }) => (
+          <Ionicons name="chevron-forward" size={26} color={pressed ? pressedIconColor : colors.textPrimary} />
+        )}
       </TipPressable>
 
-      <TipPressable tip="OK" style={({ pressed }) => [pressed && styles.okPressed]} onPress={() => onKeyPress('OK')}>
-        <LinearGradient colors={[colors.primary, '#1FBE86']} style={styles.okCenter}>
-          <Text style={styles.okText}>OK</Text>
-        </LinearGradient>
+      <TipPressable tip="OK" onPress={() => onKeyPress('OK')} style={styles.okHit}>
+        {({ pressed }) => (
+          <LinearGradient
+            colors={pressed ? ['#6B7280', '#4B5563'] : [colors.primary, '#1FBE86']}
+            style={styles.okCenter}
+          >
+            <Text style={[styles.okText, pressed && styles.okTextPressed]}>OK</Text>
+          </LinearGradient>
+        )}
       </TipPressable>
     </View>
   );
@@ -78,13 +100,17 @@ const styles = StyleSheet.create({
     width: DIAMETER,
     zIndex: 2,
   },
-  ring: {
-    borderColor: colors.border,
+  ringGradient: {
     borderRadius: DIAMETER / 2,
-    borderWidth: 1,
     height: DIAMETER,
+    padding: RING_BORDER,
     position: 'absolute',
     width: DIAMETER,
+  },
+  ringInner: {
+    backgroundColor: DPAD_GRAY,
+    borderRadius: (DIAMETER - RING_BORDER * 2) / 2,
+    flex: 1,
   },
   arm: {
     height: ARM_SIZE,
@@ -94,23 +120,29 @@ const styles = StyleSheet.create({
   },
   armHit: {
     alignItems: 'center',
+    borderRadius: ARM_SIZE / 2,
     flex: 1,
     justifyContent: 'center',
+    width: '100%',
   },
   armUp: {
-    top: 6,
+    left: (DIAMETER - ARM_SIZE) / 2,
+    top: 10,
   },
   armDown: {
-    bottom: 6,
+    bottom: 10,
+    left: (DIAMETER - ARM_SIZE) / 2,
   },
   armLeft: {
-    left: 6,
+    left: 10,
+    top: (DIAMETER - ARM_SIZE) / 2,
   },
   armRight: {
-    right: 6,
+    right: 10,
+    top: (DIAMETER - ARM_SIZE) / 2,
   },
-  armPressed: {
-    opacity: 0.5,
+  okHit: {
+    borderRadius: CENTER_SIZE / 2,
   },
   okCenter: {
     alignItems: 'center',
@@ -124,14 +156,13 @@ const styles = StyleSheet.create({
     shadowRadius: 12,
     width: CENTER_SIZE,
   },
-  okPressed: {
-    opacity: 0.85,
-    transform: [{ scale: 0.96 }],
-  },
   okText: {
     color: colors.onPrimary,
     fontSize: 16,
     fontWeight: '800',
     letterSpacing: 0.5,
+  },
+  okTextPressed: {
+    color: '#D1D5DB',
   },
 });

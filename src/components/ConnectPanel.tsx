@@ -1,4 +1,5 @@
 import { Ionicons } from '@expo/vector-icons';
+import { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -11,6 +12,7 @@ import {
 
 import { colors, radii, spacing } from '../theme';
 import type { ConnectionStatus, TvDevice } from '../types/remote';
+import { sanitizeTvDisplayName } from '../utils/tvDisplayName';
 
 type ConnectPanelProps = {
   status: ConnectionStatus;
@@ -27,11 +29,15 @@ type ConnectPanelProps = {
   manualIp: string;
   onChangeManualIp: (value: string) => void;
   onConnectManualIp: () => void;
+  isScanning?: boolean;
+  /** When true, drop the outer card chrome (used inside the bottom drawer). */
+  embedded?: boolean;
 };
 
 // Android TV pairing codes are alphanumeric (e.g. "2F05CN"), not strictly hex -
 // letters like N, G, etc. can appear, so only strip non-alphanumeric characters.
 const PIN_PATTERN = /[^0-9a-zA-Z]/g;
+const WIFI_TIP = 'This device and the TV should be connected to the same Wi-Fi.';
 
 export function ConnectPanel({
   status,
@@ -48,9 +54,26 @@ export function ConnectPanel({
   manualIp,
   onChangeManualIp,
   onConnectManualIp,
+  isScanning: isScanningProp,
+  embedded = false,
 }: ConnectPanelProps) {
-  const isScanning = status === 'scanning';
+  const isScanning = isScanningProp ?? status === 'scanning';
   const isVerifyingPin = status === 'verifying_pin';
+  const [wifiTipVisible, setWifiTipVisible] = useState(false);
+  const tipHideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (tipHideTimer.current) clearTimeout(tipHideTimer.current);
+    },
+    [],
+  );
+
+  const showWifiTip = () => {
+    if (tipHideTimer.current) clearTimeout(tipHideTimer.current);
+    setWifiTipVisible(true);
+    tipHideTimer.current = setTimeout(() => setWifiTipVisible(false), 3500);
+  };
 
   const handlePinChange = (value: string) => {
     onChangePairingPin(value.replace(PIN_PATTERN, '').toUpperCase());
@@ -68,11 +91,26 @@ export function ConnectPanel({
   };
 
   return (
-    <View style={styles.card}>
+    <View style={[styles.card, embedded && styles.cardEmbedded]}>
       <View style={styles.cardHeader}>
-        <View>
-          <Text style={styles.cardTitle}>Connect a TV</Text>
-          <Text style={styles.helperText}>Same Wi-Fi network as your phone required.</Text>
+        <View style={styles.titleBlock}>
+          <View style={styles.titleRow}>
+            <Text style={styles.cardTitle}>Connect a TV</Text>
+            <Pressable
+              onPress={showWifiTip}
+              hitSlop={10}
+              accessibilityRole="button"
+              accessibilityLabel={WIFI_TIP}
+              style={styles.infoButton}
+            >
+              <Ionicons name="information-circle-outline" size={18} color={colors.textSecondary} />
+            </Pressable>
+          </View>
+          {wifiTipVisible ? (
+            <View style={styles.tipBubble}>
+              <Text style={styles.tipText}>{WIFI_TIP}</Text>
+            </View>
+          ) : null}
         </View>
         <Pressable style={styles.scanButton} onPress={onScan} disabled={isScanning}>
           {isScanning ? (
@@ -97,17 +135,10 @@ export function ConnectPanel({
                   disabled={isConnectingThis}
                 >
                   <View style={styles.deviceIconWrap}>
-                    {isConnectingThis ? (
-                      <ActivityIndicator color={colors.primary} size="small" />
-                    ) : (
-                      <Ionicons name="tv-outline" size={20} color={isActive ? colors.primary : colors.textSecondary} />
-                    )}
+                    <Ionicons name="tv-outline" size={20} color={isActive ? colors.primary : colors.textSecondary} />
                   </View>
                   <View style={styles.deviceInfo}>
-                    <Text style={styles.deviceName}>{device.name}</Text>
-                    <Text style={styles.deviceMeta}>
-                      {isConnectingThis ? 'Connecting…' : `${device.model} · ${device.host}`}
-                    </Text>
+                    <Text style={styles.deviceName}>{sanitizeTvDisplayName(device.name, device.host)}</Text>
                   </View>
                   <View style={styles.deviceActionWrap}>
                     {isConnectingThis ? (
@@ -142,7 +173,9 @@ export function ConnectPanel({
 
       {pairingDevice && (
         <View style={styles.pairingPanel}>
-          <Text style={styles.pairingTitle}>Enter code for {pairingDevice.name}</Text>
+          <Text style={styles.pairingTitle}>
+            Enter code for {sanitizeTvDisplayName(pairingDevice.name, pairingDevice.host)}
+          </Text>
           <Text style={styles.helperText}>Type the 6-character code shown on your TV screen (numbers and letters).</Text>
           <View style={styles.inlineForm}>
             <TextInput
@@ -189,11 +222,7 @@ export function ConnectPanel({
           onPress={onConnectManualIp}
           disabled={connectingHost !== null}
         >
-          {connectingHost !== null ? (
-            <ActivityIndicator color={colors.textPrimary} size="small" />
-          ) : (
-            <Text style={styles.inlineButtonOutlineText}>Add</Text>
-          )}
+          <Text style={styles.inlineButtonOutlineText}>Add</Text>
         </Pressable>
       </View>
     </View>
@@ -208,21 +237,57 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     padding: spacing.lg,
   },
+  cardEmbedded: {
+    backgroundColor: 'transparent',
+    borderWidth: 0,
+    flexGrow: 1,
+    paddingHorizontal: 0,
+    paddingTop: 0,
+  },
   cardHeader: {
-    alignItems: 'center',
+    alignItems: 'flex-start',
     flexDirection: 'row',
     justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  titleBlock: {
+    flex: 1,
+  },
+  titleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 6,
+    minHeight: 40,
   },
   cardTitle: {
     color: colors.textPrimary,
     fontSize: 18,
     fontWeight: '800',
   },
-  helperText: {
-    color: colors.textSecondary,
-    fontSize: 13,
-    marginTop: 4,
-    maxWidth: 220,
+  infoButton: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 2,
+  },
+  tipBubble: {
+    alignSelf: 'flex-start',
+    backgroundColor: colors.textPrimary,
+    borderRadius: radii.sm,
+    elevation: 4,
+    marginTop: 8,
+    maxWidth: 260,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 3,
+  },
+  tipText: {
+    color: colors.background,
+    fontSize: 12,
+    fontWeight: '600',
+    lineHeight: 16,
   },
   scanButton: {
     alignItems: 'center',

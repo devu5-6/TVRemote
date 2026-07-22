@@ -30,7 +30,9 @@ export type RemoteKey =
   | 'POWER'
   | 'SEARCH'
   | 'SETTINGS'
-  | 'HDMI_1';
+  | 'HDMI_1'
+  | 'CHANNEL_UP'
+  | 'CHANNEL_DOWN';
 
 export type VoiceSessionState = 'idle' | 'listening' | 'sending';
 

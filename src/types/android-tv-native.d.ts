@@ -62,11 +62,17 @@ declare module 'react-native-zeroconf' {
     port: number;
     addresses: string[];
     fullName?: string;
+    txt?: Record<string, string>;
+  };
+
+  export const ImplType: {
+    NSD: 'NSD';
+    DNSSD: 'DNSSD';
   };
 
   export default class Zeroconf {
-    scan(type?: string, protocol?: string, domain?: string): void;
-    stop(): void;
+    scan(type?: string, protocol?: string, domain?: string, implType?: string): void;
+    stop(implType?: string): void;
     removeDeviceListeners(): void;
     on(event: 'start', listener: () => void): this;
     on(event: 'stop', listener: () => void): this;

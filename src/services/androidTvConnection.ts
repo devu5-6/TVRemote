@@ -5,6 +5,8 @@ import { Buffer } from 'buffer';
 
 import { tvCredentialStore } from './tvCredentialStore';
 import type { RemoteKey, TvDevice } from '../types/remote';
+import { sanitizeTvDisplayName } from '../utils/tvDisplayName';
+import { isBenignSocketError } from '../utils/socketErrors';
 
 // Shape of the payload the (patched) library emits for a `remoteError` -
 // the TV echoes back the original request that it couldn't handle.
@@ -67,6 +69,8 @@ const KEY_MAP: Record<RemoteKey, number> = {
   // Many TVs ignore this key over the remote protocol; switchToHdmi1() also
   // sends a passthrough app-link that Changhong/MediaTek sets usually honor.
   HDMI_1: RemoteKeyCode.KEYCODE_TV_INPUT_HDMI_1 ?? 243,
+  CHANNEL_UP: RemoteKeyCode.KEYCODE_CHANNEL_UP ?? 166,
+  CHANNEL_DOWN: RemoteKeyCode.KEYCODE_CHANNEL_DOWN ?? 167,
 };
 
 /**
@@ -233,8 +237,11 @@ export class AndroidTvConnection {
         this.callbacks.onAppLinkError?.(appLinkRequest.appLink);
         return;
       }
+      // Ping/key writes during teardown throw "Socket is closed." — noise, not a failure.
+      if (isBenignSocketError(error)) return;
       const message =
         error instanceof Error ? error.message : typeof error === 'string' ? error : 'Connection error';
+      if (isBenignSocketError(message)) return;
       this.callbacks.onError(message);
     });
 
@@ -281,7 +288,9 @@ export class AndroidTvConnection {
     } catch (error) {
       settled = true;
       if (this.isDisposed) return;
+      if (isBenignSocketError(error)) return;
       const message = error instanceof Error ? error.message : 'Could not reach the TV on this network.';
+      if (isBenignSocketError(message)) return;
       this.callbacks.onError(message);
       // Stop the underlying remote so a late/zombie success after the timeout
       // can't silently flip the UI back to "connected" behind the error state.
@@ -299,7 +308,7 @@ export class AndroidTvConnection {
     if (!cert.cert || !cert.key) return;
     await tvCredentialStore.save({
       host: this.device.host,
-      name: this.device.name,
+      name: sanitizeTvDisplayName(this.device.name, this.device.host),
       model: this.device.model,
       cert: cert.cert,
       key: cert.key,
@@ -317,11 +326,15 @@ export class AndroidTvConnection {
   sendKey(key: RemoteKey): void {
     const keyCode = KEY_MAP[key];
     if (keyCode === undefined) return;
-    if (key === 'POWER') {
-      this.remote?.sendPower();
-      return;
+    try {
+      if (key === 'POWER') {
+        this.remote?.sendPower();
+        return;
+      }
+      this.remote?.sendKey(keyCode, RemoteDirection.SHORT);
+    } catch (error) {
+      if (!isBenignSocketError(error)) throw error;
     }
-    this.remote?.sendKey(keyCode, RemoteDirection.SHORT);
   }
 
   /**
@@ -336,8 +349,12 @@ export class AndroidTvConnection {
     if (!this.remote) return;
 
     const keyCode = KEY_MAP.HDMI_1;
-    if (keyCode !== undefined) {
-      this.remote.sendKey(keyCode, RemoteDirection.SHORT);
+    try {
+      if (keyCode !== undefined) {
+        this.remote.sendKey(keyCode, RemoteDirection.SHORT);
+      }
+    } catch (error) {
+      if (!isBenignSocketError(error)) throw error;
     }
 
     // Prefer the deep-link path: most Changhong/MediaTek sets ignore the HDMI
@@ -345,18 +362,60 @@ export class AndroidTvConnection {
     // Stagger links so the TV isn't flooded with concurrent launch requests.
     HDMI_1_APP_LINKS.forEach((appLink, index) => {
       setTimeout(() => {
-        this.remote?.sendAppLink(appLink);
+        try {
+          this.remote?.sendAppLink(appLink);
+        } catch (error) {
+          if (!isBenignSocketError(error)) throw error;
+        }
       }, index * 400);
     });
   }
 
   /**
-   * Launch an app via a deep-link URI (e.g. "https://www.netflix.com/title").
-   * The TV feeds this to Intent.parseUri(), so bare package names don't work -
-   * some TVs even drop the connection over them.
+   * Restart the TV via the system power menu.
+   * Long-press Power opens the menu with Restart focused on Changhong /
+   * Google TV — do NOT press DPAD_DOWN (that selects Power off). Confirm OK.
+   */
+  restartTv(): void {
+    if (!this.remote) return;
+
+    const power = RemoteKeyCode.KEYCODE_POWER;
+    const ok = RemoteKeyCode.KEYCODE_DPAD_CENTER;
+
+    try {
+      this.remote.sendKey(power, RemoteDirection.START_LONG);
+    } catch (error) {
+      if (!isBenignSocketError(error)) throw error;
+      return;
+    }
+    setTimeout(() => {
+      try {
+        this.remote?.sendKey(power, RemoteDirection.END_LONG);
+        setTimeout(() => {
+          try {
+            this.remote?.sendKey(ok, RemoteDirection.SHORT);
+          } catch (error) {
+            if (!isBenignSocketError(error)) throw error;
+          }
+        }, 900);
+      } catch (error) {
+        if (!isBenignSocketError(error)) throw error;
+      }
+    }, 2500);
+  }
+
+  /**
+   * Launch an app via a deep-link URI (e.g. "https://www.netflix.com/title")
+   * or market://launch?id=<package> for installed apps.
+   * Never send bare package names on Changhong — they drop the remote session.
+   * Avoid raw #Intent;… links on some sets — they can also drop the session.
    */
   launchApp(appLink: string): void {
-    this.remote?.sendAppLink(appLink);
+    try {
+      this.remote?.sendAppLink(appLink);
+    } catch (error) {
+      if (!isBenignSocketError(error)) throw error;
+    }
   }
 
   /**
@@ -381,7 +440,8 @@ export class AndroidTvConnection {
 
     try {
       this.remote.sendText(text);
-    } catch {
+    } catch (error) {
+      if (isBenignSocketError(error)) return;
       this.callbacks.onError('This TV screen may not have a text field focused.');
     }
   }
@@ -389,7 +449,12 @@ export class AndroidTvConnection {
   private async typeTextViaKeys(keyCodes: number[]): Promise<void> {
     for (const keyCode of keyCodes) {
       if (this.isDisposed || !this.remote) return;
-      this.remote.sendKey(keyCode, RemoteDirection.SHORT);
+      try {
+        this.remote.sendKey(keyCode, RemoteDirection.SHORT);
+      } catch (error) {
+        if (isBenignSocketError(error)) return;
+        throw error;
+      }
       // Small gap so the TV IME/OSK can process each key (bursting them
       // drops characters on several Android TV builds).
       await new Promise((resolve) => setTimeout(resolve, 50));

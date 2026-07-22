@@ -1,24 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { StatusBar } from 'expo-status-bar';
-import { useRef, useState } from 'react';
-import { Keyboard, ScrollView, StyleSheet, Text, View, type TextInput } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Keyboard, Pressable, ScrollView, StyleSheet, Text, View, type TextInput } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 
 import { ActivityBar } from './src/components/ActivityBar';
-import { ConnectPanel } from './src/components/ConnectPanel';
+import { ConnectDrawer } from './src/components/ConnectDrawer';
 import { KeyboardPanel } from './src/components/KeyboardPanel';
 import { RemoteCard } from './src/components/RemoteCard';
-import { StatusPill } from './src/components/StatusPill';
 import { ToastBanner } from './src/components/ToastBanner';
 import { VoiceSearchOverlay } from './src/components/VoiceSearchOverlay';
 import { useAndroidTvRemote } from './src/hooks/useAndroidTvRemote';
 import { colors, spacing } from './src/theme';
+import { sanitizeTvDisplayName } from './src/utils/tvDisplayName';
 
 export default function App() {
   const {
     status,
     isBusy,
+    isScanning,
     devices,
     selectedDevice,
     connectingHost,
@@ -37,6 +38,8 @@ export default function App() {
     sendText,
     launchApp,
     openTvSettings,
+    openFileManager,
+    restartTv,
     voiceState,
     voiceOverlayVisible,
     voiceTranscript,
@@ -47,8 +50,30 @@ export default function App() {
   } = useAndroidTvRemote();
 
   const [keyboardText, setKeyboardText] = useState('');
+  const [connectDrawerOpen, setConnectDrawerOpen] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
   const keyboardInputRef = useRef<TextInput>(null);
+
+  // Keep the connect drawer open when the TV asks for a pairing PIN.
+  useEffect(() => {
+    if (status === 'awaiting_pin' || pairingDevice) {
+      setConnectDrawerOpen(true);
+    }
+  }, [status, pairingDevice]);
+
+  // Close after a successful connect so the remote is front and center.
+  useEffect(() => {
+    if (status === 'connected') {
+      setConnectDrawerOpen(false);
+    }
+  }, [status]);
+
+  // Always scan when the drawer opens (connected or not).
+  useEffect(() => {
+    if (connectDrawerOpen) {
+      scanForDevices();
+    }
+  }, [connectDrawerOpen, scanForDevices]);
 
   const handleKeyboardSubmit = () => {
     sendText(keyboardText);
@@ -61,6 +86,8 @@ export default function App() {
     setTimeout(() => keyboardInputRef.current?.focus(), 280);
   };
 
+  const isConnected = status === 'connected';
+
   return (
     <SafeAreaProvider>
       <ToastBanner />
@@ -69,6 +96,25 @@ export default function App() {
         transcript={voiceTranscript}
         onCancel={cancelVoiceSearch}
         onDone={finishVoiceSearch}
+      />
+      <ConnectDrawer
+        visible={connectDrawerOpen}
+        onClose={() => setConnectDrawerOpen(false)}
+        status={status}
+        devices={devices}
+        selectedDeviceId={selectedDevice?.id}
+        connectingHost={connectingHost}
+        onScan={scanForDevices}
+        onSelectDevice={selectDevice}
+        onRemoveDevice={removeDevice}
+        pairingDevice={pairingDevice}
+        pairingPin={pairingPin}
+        onChangePairingPin={setPairingPin}
+        onConfirmPairing={confirmPairing}
+        manualIp={manualIp}
+        onChangeManualIp={setManualIp}
+        onConnectManualIp={connectManualIp}
+        isScanning={isScanning}
       />
       <LinearGradient colors={[colors.backgroundEnd, colors.background]} style={styles.gradient}>
         <SafeAreaView style={styles.safeArea} edges={['top', 'bottom', 'left', 'right']}>
@@ -80,41 +126,45 @@ export default function App() {
             keyboardShouldPersistTaps="handled"
           >
             <View style={styles.header}>
-              <View style={styles.brandRow}>
-                <View style={styles.logo}>
-                  <Ionicons name="tv" size={20} color={colors.primary} />
-                </View>
-                <View>
-                  <Text style={styles.eyebrow}>Android TV · Google TV</Text>
-                  <Text style={styles.title}>TV Remote</Text>
-                </View>
+              <View style={styles.logo}>
+                <Ionicons name="tv" size={20} color={colors.primary} />
               </View>
-              <StatusPill label={selectedDevice ? 'Connected' : 'Offline'} active={!!selectedDevice} />
+              <Pressable
+                onPress={() => setConnectDrawerOpen((open) => !open)}
+                style={styles.titleRow}
+                accessibilityRole="button"
+                accessibilityLabel="Open connect TV"
+              >
+                <View
+                  style={[
+                    styles.statusDot,
+                    status === 'connected' ? styles.statusDotConnected : styles.statusDotOffline,
+                  ]}
+                />
+                <Text style={styles.title}>Connect TV</Text>
+                <Ionicons
+                  name={connectDrawerOpen ? 'chevron-up' : 'chevron-down'}
+                  size={20}
+                  color={colors.textSecondary}
+                />
+              </Pressable>
             </View>
 
-            <View style={styles.stack}>
-              <ConnectPanel
-                status={status}
-                devices={devices}
-                selectedDeviceId={selectedDevice?.id}
-                connectingHost={connectingHost}
-                onScan={scanForDevices}
-                onSelectDevice={selectDevice}
-                onRemoveDevice={removeDevice}
-                pairingDevice={pairingDevice}
-                pairingPin={pairingPin}
-                onChangePairingPin={setPairingPin}
-                onConfirmPairing={confirmPairing}
-                manualIp={manualIp}
-                onChangeManualIp={setManualIp}
-                onConnectManualIp={connectManualIp}
-              />
-
+            <View
+              style={[styles.stack, !isConnected && styles.stackDisconnected]}
+              pointerEvents={isConnected ? 'auto' : 'none'}
+            >
               <RemoteCard
-                connectedDeviceName={selectedDevice?.name ?? null}
+                connectedDeviceName={
+                  isConnected && selectedDevice
+                    ? sanitizeTvDisplayName(selectedDevice.name, selectedDevice.host)
+                    : null
+                }
                 onKeyPress={sendKey}
                 onLaunchApp={launchApp}
                 onOpenSettings={openTvSettings}
+                onOpenFileManager={openFileManager}
+                onRestartTv={restartTv}
                 onOpenKeyboard={openKeyboard}
                 onSendDigit={(digit) => sendText(digit)}
                 voiceState={voiceState}
@@ -151,15 +201,10 @@ const styles = StyleSheet.create({
   },
   header: {
     alignItems: 'center',
-    flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'center',
     marginBottom: spacing.lg,
     marginTop: spacing.xs,
-  },
-  brandRow: {
-    alignItems: 'center',
-    flexDirection: 'row',
-    gap: spacing.sm,
+    minHeight: 40,
   },
   logo: {
     alignItems: 'center',
@@ -167,22 +212,36 @@ const styles = StyleSheet.create({
     borderRadius: 14,
     height: 40,
     justifyContent: 'center',
+    left: 0,
+    position: 'absolute',
     width: 40,
+    zIndex: 1,
   },
-  eyebrow: {
-    color: colors.textMuted,
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
+  titleRow: {
+    alignItems: 'center',
+    flexDirection: 'row',
+    gap: 10,
+  },
+  statusDot: {
+    borderRadius: 5,
+    height: 10,
+    width: 10,
+  },
+  statusDotConnected: {
+    backgroundColor: '#22C55E',
+  },
+  statusDotOffline: {
+    backgroundColor: '#EF4444',
   },
   title: {
     color: colors.textPrimary,
     fontSize: 22,
     fontWeight: '800',
-    marginTop: 2,
   },
   stack: {
     gap: spacing.md,
+  },
+  stackDisconnected: {
+    opacity: 0.38,
   },
 });

@@ -1,7 +1,7 @@
 import { StyleSheet, Text, View } from 'react-native';
 
 import { colors } from '../theme';
-import { TipPressable } from './TipPressable';
+import { TipPressable, pressedIconColor } from './TipPressable';
 
 type VolumeRockerProps = {
   onVolumeUp: () => void;
@@ -37,9 +37,11 @@ export function VolumeRocker({
         hitSlop={6}
         accessibilityRole="button"
         accessibilityLabel="Volume up"
-        style={({ pressed }) => [styles.zone, styles.topZone, pressed && styles.pressed]}
+        style={[styles.zone, styles.topZone]}
       >
-        <Text style={styles.glyph}>+</Text>
+        {({ pressed }) => (
+          <Text style={[styles.glyph, pressed && styles.glyphPressed]}>+</Text>
+        )}
       </TipPressable>
 
       <View style={styles.center} pointerEvents="none">
@@ -53,9 +55,11 @@ export function VolumeRocker({
         hitSlop={6}
         accessibilityRole="button"
         accessibilityLabel="Volume down"
-        style={({ pressed }) => [styles.zone, styles.bottomZone, pressed && styles.pressed]}
+        style={[styles.zone, styles.bottomZone]}
       >
-        <Text style={styles.glyph}>−</Text>
+        {({ pressed }) => (
+          <Text style={[styles.glyph, pressed && styles.glyphPressed]}>−</Text>
+        )}
       </TipPressable>
     </View>
   );
@@ -94,13 +98,16 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     height: 52,
     justifyContent: 'center',
+    width: '100%',
     zIndex: 1,
   },
   topZone: {
-    paddingTop: 6,
+    borderTopLeftRadius: ROCKER_RADIUS,
+    borderTopRightRadius: ROCKER_RADIUS,
   },
   bottomZone: {
-    paddingBottom: 6,
+    borderBottomLeftRadius: ROCKER_RADIUS,
+    borderBottomRightRadius: ROCKER_RADIUS,
   },
   center: {
     alignItems: 'center',
@@ -119,13 +126,14 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     marginTop: 2,
   },
-  pressed: {
-    backgroundColor: 'rgba(135, 206, 235, 0.2)',
-  },
   glyph: {
     color: colors.textPrimary,
     fontSize: 26,
     fontWeight: '300',
     lineHeight: 30,
+    textAlign: 'center',
+  },
+  glyphPressed: {
+    color: pressedIconColor,
   },
 });

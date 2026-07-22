@@ -258,10 +258,10 @@ index f9d9b58..4ef23ce 100644
  var _pairingmessageProto = _interopRequireDefault(require("./pairingmessage.proto.js"));
  function _interopRequireDefault(e) { return e && e.__esModule ? e : { default: e }; }
 diff --git a/node_modules/react-native-androidtv-remote/dist/remote/RemoteManager.js b/node_modules/react-native-androidtv-remote/dist/remote/RemoteManager.js
-index 1137978..d27a3c5 100644
+index 1137978..38945e7 100644
 --- a/node_modules/react-native-androidtv-remote/dist/remote/RemoteManager.js
 +++ b/node_modules/react-native-androidtv-remote/dist/remote/RemoteManager.js
-@@ -4,8 +4,7 @@ Object.defineProperty(exports, "__esModule", {
+@@ -4,15 +4,14 @@ Object.defineProperty(exports, "__esModule", {
    value: true
  });
  exports.RemoteManager = void 0;
@@ -271,7 +271,15 @@ index 1137978..d27a3c5 100644
  var _RemoteMessageManager = require("./RemoteMessageManager.js");
  var _events = _interopRequireDefault(require("events"));
  var _buffer = require("buffer");
-@@ -23,6 +22,10 @@ class RemoteManager extends _events.default {
+ var _reactNativeTcpSocket = _interopRequireDefault(require("react-native-tcp-socket"));
+ function _interopRequireDefault(e) { return e && e.__esModule ? e : { default: e }; }
+ function asyncGeneratorStep(n, t, e, r, o, a, c) { try { var i = n[a](c), u = i.value; } catch (n) { return void e(n); } i.done ? t(u) : Promise.resolve(u).then(r, o); }
+-function _asyncToGenerator(n) { return function () { var t = this, e = arguments; return new Promise(function (r, o) { var a = n.apply(t, e); function _next(n) { asyncGeneratorStep(a, r, o, _next, _throw, "next", n); } function _throw(n) { asyncGeneratorStep(a, r, o, _next, _throw, "throw", n); } _next(void 0); }); }; }
++function _asyncToGenerator(n) { return function () { var t = this, e = arguments; return new Promise(function (r, o) { var a = n.apply(t, e); function _next(n) { asyncGeneratorStep(a, r, o, _next, _throw, "next"); } function _throw(n) { asyncGeneratorStep(a, r, o, _next, _throw, "throw"); } _next(void 0); }); }; }
+ class RemoteManager extends _events.default {
+   constructor(host, port, certs, systeminfo) {
+     super();
+@@ -23,6 +22,27 @@ class RemoteManager extends _events.default {
      this.error = null;
      this.remoteMessageManager = new _RemoteMessageManager.RemoteMessageManager(systeminfo);
      this.isManualStop = false;
@@ -279,10 +287,27 @@ index 1137978..d27a3c5 100644
 +    // reuse them or the IME edit is ignored.
 +    this.imeCounter = 0;
 +    this.imeFieldCounter = 0;
++  }
++  // Patched: react-native-tcp-socket throws "Socket is closed." on write after
++  // destroy/reconnect. Swallow that instead of crashing / surfacing toasts.
++  _write(buffer) {
++    if (!this.client || this.isManualStop) return false;
++    try {
++      if (this.client.destroyed || this.client._destroyed) return false;
++      this.client.write(buffer);
++      return true;
++    } catch (error) {
++      var message = error instanceof Error ? error.message : String(error ?? '');
++      if (/socket is closed|closed socket|attempted to write to closed/i.test(message)) {
++        console.debug(this.host + ' Ignored write on closed socket');
++        return false;
++      }
++      throw error;
++    }
    }
    start() {
      var _this = this;
-@@ -52,8 +55,13 @@ class RemoteManager extends _events.default {
+@@ -52,8 +72,13 @@ class RemoteManager extends _events.default {
            _this.client.destroy();
          });
  
@@ -298,7 +323,19 @@ index 1137978..d27a3c5 100644
          _this.client.on("secureConnect", () => {
            console.debug(_this.host + " Remote secureConnect");
            resolve(true);
-@@ -77,15 +85,23 @@ class RemoteManager extends _events.default {
+@@ -68,24 +93,32 @@ class RemoteManager extends _events.default {
+               console.debug(_this.host + " Receive : " + JSON.stringify(message.toJSON()));
+             }
+             if (message.remoteConfigure) {
+-              _this.client.write(_this.remoteMessageManager.createRemoteConfigure(622, "Build.MODEL", "Build.MANUFACTURER", 1, "Build.VERSION.RELEASE"));
++              _this._write(_this.remoteMessageManager.createRemoteConfigure(622, "Build.MODEL", "Build.MANUFACTURER", 1, "Build.VERSION.RELEASE"));
+               _this.emit('ready');
+             } else if (message.remoteSetActive) {
+-              _this.client.write(_this.remoteMessageManager.createRemoteSetActive(622));
++              _this._write(_this.remoteMessageManager.createRemoteSetActive(622));
+             } else if (message.remotePingRequest) {
+-              _this.client.write(_this.remoteMessageManager.createRemotePingResponse(message.remotePingRequest.val1));
++              _this._write(_this.remoteMessageManager.createRemotePingResponse(message.remotePingRequest.val1));
              } else if (message.remoteImeKeyInject) {
                _this.emit('current_app', message.remoteImeKeyInject.appInfo.appPackage);
              } else if (message.remoteImeBatchEdit) {
@@ -324,7 +361,7 @@ index 1137978..d27a3c5 100644
              } else if (message.remoteStart) {
                _this.emit('powered', message.remoteStart.started);
              } else if (message.remoteSetVolumeLevel) {
-@@ -127,6 +143,7 @@ class RemoteManager extends _events.default {
+@@ -127,6 +160,7 @@ class RemoteManager extends _events.default {
                } else if (_this.error.code === "ECONNREFUSED") {
                  console.log('RemoteManager.close() hasError ECONNREFUSED');
                  // L'appareil n'est pas encore prêt : on relance
@@ -332,7 +369,7 @@ index 1137978..d27a3c5 100644
                  yield new Promise(resolve => setTimeout(resolve, 1000));
                  yield _this.start().catch(error => {
                    console.error(error);
-@@ -137,14 +154,21 @@ class RemoteManager extends _events.default {
+@@ -137,14 +171,21 @@ class RemoteManager extends _events.default {
                } else {
                  // Dans le doute on redémarre
                  console.log('RemoteManager.close() unknown error => start again');
@@ -355,31 +392,63 @@ index 1137978..d27a3c5 100644
                yield new Promise(resolve => setTimeout(resolve, 1000));
                yield _this.start().catch(error => {
                  console.error(error);
-@@ -171,6 +195,24 @@ class RemoteManager extends _events.default {
-   sendAppLink(app_link) {
-     this.client.write(this.remoteMessageManager.createRemoteRemoteAppLinkLaunchRequest(app_link));
+@@ -156,6 +197,12 @@ class RemoteManager extends _events.default {
+           };
+         }());
+         _this.client.on('error', error => {
++          // Patched: closed-socket noise during teardown / reconnect.
++          var message = error instanceof Error ? error.message : String(error ?? '');
++          if (/socket is closed|closed socket|attempted to write to closed/i.test(message)) {
++            console.debug(_this.host, 'Ignored socket error:', message);
++            return;
++          }
+           console.error(_this.host, error);
+           _this.error = error;
+         });
+@@ -163,17 +210,39 @@ class RemoteManager extends _events.default {
+     })();
    }
+   sendPower() {
+-    this.client.write(this.remoteMessageManager.createRemoteKeyInject(this.remoteMessageManager.RemoteDirection.SHORT, this.remoteMessageManager.RemoteKeyCode.KEYCODE_POWER));
++    this._write(this.remoteMessageManager.createRemoteKeyInject(this.remoteMessageManager.RemoteDirection.SHORT, this.remoteMessageManager.RemoteKeyCode.KEYCODE_POWER));
+   }
+   sendKey(key, direction) {
+-    this.client.write(this.remoteMessageManager.createRemoteKeyInject(direction, key));
++    this._write(this.remoteMessageManager.createRemoteKeyInject(direction, key));
+   }
+   sendAppLink(app_link) {
+-    this.client.write(this.remoteMessageManager.createRemoteRemoteAppLinkLaunchRequest(app_link));
++    this._write(this.remoteMessageManager.createRemoteRemoteAppLinkLaunchRequest(app_link));
++  }
 +  // Patched: inject text into the focused TV field via RemoteImeBatchEdit.
 +  // Works best when the TV on-screen keyboard is hidden; with OSK open
 +  // (e.g. YouTube search) callers should fall back to key events.
 +  sendText(text) {
 +    if (!text || !this.client) return;
-+    this.client.write(this.remoteMessageManager.createRemoteImeBatchEdit(text, this.imeCounter, this.imeFieldCounter));
++    this._write(this.remoteMessageManager.createRemoteImeBatchEdit(text, this.imeCounter, this.imeFieldCounter));
 +  }
 +  // Patched: voice search support (see remotemessage.proto.js /
 +  // RemoteMessageManager.js patches for the "why").
 +  sendVoiceBegin(sessionId) {
-+    this.client.write(this.remoteMessageManager.createRemoteVoiceBegin(sessionId));
++    this._write(this.remoteMessageManager.createRemoteVoiceBegin(sessionId));
 +  }
 +  sendVoicePayload(sessionId, samples) {
-+    this.client.write(this.remoteMessageManager.createRemoteVoicePayload(sessionId, samples));
++    this._write(this.remoteMessageManager.createRemoteVoicePayload(sessionId, samples));
 +  }
 +  sendVoiceEnd(sessionId) {
-+    this.client.write(this.remoteMessageManager.createRemoteVoiceEnd(sessionId));
-+  }
++    this._write(this.remoteMessageManager.createRemoteVoiceEnd(sessionId));
+   }
    stop() {
      this.isManualStop = true;
-     this.client.destroy();
+-    this.client.destroy();
++    try {
++      if (this.client) this.client.destroy();
++    } catch (_unused) {
++      // ignore destroy races
++    }
+   }
+ }
+ exports.RemoteManager = RemoteManager;
 diff --git a/node_modules/react-native-androidtv-remote/dist/remote/RemoteMessageManager.js b/node_modules/react-native-androidtv-remote/dist/remote/RemoteMessageManager.js
 index b030cec..b57aa89 100644
 --- a/node_modules/react-native-androidtv-remote/dist/remote/RemoteMessageManager.js
@@ -563,10 +632,10 @@ index f95b18f..2900e67 100644
          return {
              key: this.cert.key,
 diff --git a/node_modules/react-native-androidtv-remote/src/remote/RemoteManager.js b/node_modules/react-native-androidtv-remote/src/remote/RemoteManager.js
-index 076e8f2..e7064d6 100644
+index 076e8f2..9692a65 100644
 --- a/node_modules/react-native-androidtv-remote/src/remote/RemoteManager.js
 +++ b/node_modules/react-native-androidtv-remote/src/remote/RemoteManager.js
-@@ -14,6 +14,10 @@ class RemoteManager extends EventEmitter {
+@@ -14,6 +14,28 @@ class RemoteManager extends EventEmitter {
          this.error = null;
          this.remoteMessageManager = new RemoteMessageManager(systeminfo);
          this.isManualStop = false;
@@ -574,10 +643,28 @@ index 076e8f2..e7064d6 100644
 +        // reuse them or the IME edit is ignored.
 +        this.imeCounter = 0;
 +        this.imeFieldCounter = 0;
++    }
++
++    // Patched: react-native-tcp-socket throws "Socket is closed." on write after
++    // destroy/reconnect. Swallow that instead of crashing / surfacing toasts.
++    _write(buffer) {
++        if (!this.client || this.isManualStop) return false;
++        try {
++            if (this.client.destroyed || this.client._destroyed) return false;
++            this.client.write(buffer);
++            return true;
++        } catch (error) {
++            const message = error instanceof Error ? error.message : String(error ?? '');
++            if (/socket is closed|closed socket|attempted to write to closed/i.test(message)) {
++                console.debug(this.host + ' Ignored write on closed socket');
++                return false;
++            }
++            throw error;
++        }
      }
  
      async start() {
-@@ -45,8 +49,13 @@ class RemoteManager extends EventEmitter {
+@@ -45,8 +67,13 @@ class RemoteManager extends EventEmitter {
                  this.client.destroy();
              });
  
@@ -593,7 +680,27 @@ index 076e8f2..e7064d6 100644
  
              this.client.on("secureConnect", () => {
                  console.debug(this.host + " Remote secureConnect");
-@@ -86,19 +95,28 @@ class RemoteManager extends EventEmitter {
+@@ -67,7 +94,7 @@ class RemoteManager extends EventEmitter {
+                     }
+ 
+                     if(message.remoteConfigure){
+-                        this.client.write(this.remoteMessageManager.createRemoteConfigure(
++                        this._write(this.remoteMessageManager.createRemoteConfigure(
+                             622,
+                             "Build.MODEL",
+                             "Build.MANUFACTURER",
+@@ -77,28 +104,37 @@ class RemoteManager extends EventEmitter {
+                         this.emit('ready');
+                     }
+                     else if(message.remoteSetActive){
+-                        this.client.write(this.remoteMessageManager.createRemoteSetActive(622));
++                        this._write(this.remoteMessageManager.createRemoteSetActive(622));
+                     }
+                     else if(message.remotePingRequest){
+-                        this.client.write(this.remoteMessageManager.createRemotePingResponse(message.remotePingRequest.val1));
++                        this._write(this.remoteMessageManager.createRemotePingResponse(message.remotePingRequest.val1));
+                     }
+                     else if(message.remoteImeKeyInject){
                          this.emit('current_app', message.remoteImeKeyInject.appInfo.appPackage);
                      }
                      else if(message.remoteImeBatchEdit){
@@ -624,15 +731,32 @@ index 076e8f2..e7064d6 100644
                      }
                      else if(message.remoteStart){
                          this.emit('powered', message.remoteStart.started);
-@@ -145,6 +163,7 @@ class RemoteManager extends EventEmitter {
-                     else if(this.error.code === "ECONNREFUSED"){
+@@ -137,26 +173,28 @@ class RemoteManager extends EventEmitter {
+ 
+                 if(hasError){
+                     console.log('RemoteManager.close() hasError');
+-                    reject(this.error.code);
+-                    if(this.error.code === "ECONNRESET"){
++                    reject(this.error?.code);
++                    if(this.error?.code === "ECONNRESET"){
+                         console.log('RemoteManager.close() hasError ECONNRESET');
+                         this.emit('unpaired');
+                     }
+-                    else if(this.error.code === "ECONNREFUSED"){
++                    else if(this.error?.code === "ECONNREFUSED"){
                          console.log('RemoteManager.close() hasError ECONNREFUSED');
                          // L'appareil n'est pas encore prêt : on relance
 +                        this.emit('reconnecting');
                          await new Promise(resolve => setTimeout(resolve, 1000));
                          await this.start().catch((error) => {
                              console.error(error);
-@@ -157,6 +176,7 @@ class RemoteManager extends EventEmitter {
+                         });
+                     }
+-                    else if(this.error.code === "EHOSTDOWN"){
++                    else if(this.error?.code === "EHOSTDOWN"){
+                         // L'appareil est down, on ne fait rien
+                         console.log('RemoteManager.close() hasError EHOSTDOWN');
+                     }
                      else{
                          // Dans le doute on redémarre
                          console.log('RemoteManager.close() unknown error => start again');
@@ -640,7 +764,7 @@ index 076e8f2..e7064d6 100644
                          await new Promise(resolve => setTimeout(resolve, 1000));
                          await this.start().catch((error) => {
                              console.error(error);
-@@ -164,8 +184,15 @@ class RemoteManager extends EventEmitter {
+@@ -164,8 +202,15 @@ class RemoteManager extends EventEmitter {
                      }
                  }
                  else {
@@ -657,16 +781,47 @@ index 076e8f2..e7064d6 100644
                      await new Promise(resolve => setTimeout(resolve, 1000));
                      await this.start().catch((error) => {
                          console.error(error);
-@@ -197,6 +224,32 @@ class RemoteManager extends EventEmitter {
-         this.client.write(this.remoteMessageManager.createRemoteRemoteAppLinkLaunchRequest(app_link));
+@@ -174,6 +219,12 @@ class RemoteManager extends EventEmitter {
+             });
+ 
+             this.client.on('error', (error) => {
++                // Patched: closed-socket noise during teardown / reconnect.
++                const message = error instanceof Error ? error.message : String(error ?? '');
++                if (/socket is closed|closed socket|attempted to write to closed/i.test(message)) {
++                    console.debug(this.host, 'Ignored socket error:', message);
++                    return;
++                }
+                 console.error(this.host, error);
+                 this.error = error;
+             });
+@@ -182,24 +233,54 @@ class RemoteManager extends EventEmitter {
      }
  
+     sendPower(){
+-        this.client.write(this.remoteMessageManager.createRemoteKeyInject(
++        this._write(this.remoteMessageManager.createRemoteKeyInject(
+             this.remoteMessageManager.RemoteDirection.SHORT,
+             this.remoteMessageManager.RemoteKeyCode.KEYCODE_POWER));
+     }
+ 
+     sendKey(key, direction){
+-        this.client.write(this.remoteMessageManager.createRemoteKeyInject(
++        this._write(this.remoteMessageManager.createRemoteKeyInject(
+             direction,
+             key));
+     }
+ 
+     sendAppLink(app_link){
+-        this.client.write(this.remoteMessageManager.createRemoteRemoteAppLinkLaunchRequest(app_link));
++        this._write(this.remoteMessageManager.createRemoteRemoteAppLinkLaunchRequest(app_link));
++    }
++
 +    // Patched: inject text into the focused TV field via RemoteImeBatchEdit.
 +    // Works best when the TV on-screen keyboard is hidden; with OSK open
 +    // (e.g. YouTube search) callers should fall back to key events.
 +    sendText(text){
 +        if (!text || !this.client) return;
-+        this.client.write(this.remoteMessageManager.createRemoteImeBatchEdit(
++        this._write(this.remoteMessageManager.createRemoteImeBatchEdit(
 +            text,
 +            this.imeCounter,
 +            this.imeFieldCounter,
@@ -676,20 +831,28 @@ index 076e8f2..e7064d6 100644
 +    // Patched: voice search support (see remotemessage.proto.js /
 +    // RemoteMessageManager.js patches for the "why").
 +    sendVoiceBegin(sessionId){
-+        this.client.write(this.remoteMessageManager.createRemoteVoiceBegin(sessionId));
++        this._write(this.remoteMessageManager.createRemoteVoiceBegin(sessionId));
 +    }
 +
 +    sendVoicePayload(sessionId, samples){
-+        this.client.write(this.remoteMessageManager.createRemoteVoicePayload(sessionId, samples));
++        this._write(this.remoteMessageManager.createRemoteVoicePayload(sessionId, samples));
 +    }
 +
 +    sendVoiceEnd(sessionId){
-+        this.client.write(this.remoteMessageManager.createRemoteVoiceEnd(sessionId));
-+    }
-+
++        this._write(this.remoteMessageManager.createRemoteVoiceEnd(sessionId));
+     }
+ 
      stop(){
          this.isManualStop = true;
-         this.client.destroy();
+-        this.client.destroy();
++        try {
++            this.client?.destroy();
++        } catch {
++            // ignore destroy races
++        }
+     }
+ }
+ 
 diff --git a/node_modules/react-native-androidtv-remote/src/remote/RemoteMessageManager.js b/node_modules/react-native-androidtv-remote/src/remote/RemoteMessageManager.js
 index 38d5ca0..0804390 100644
 --- a/node_modules/react-native-androidtv-remote/src/remote/RemoteMessageManager.js

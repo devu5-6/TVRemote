@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 
 import { colors, radii } from '../theme';
-import { TipPressable } from './TipPressable';
+import { TipPressable, pressedIconColor } from './TipPressable';
 
 type IconButtonProps = {
   icon: keyof typeof Ionicons.glyphMap;
@@ -27,25 +27,24 @@ export function IconButton({
   const isDanger = variant === 'danger';
   const tipLabel = tip ?? label ?? icon;
 
+  const idleColor = isPrimary ? colors.onPrimary : isDanger ? colors.danger : colors.textPrimary;
+
   return (
     <View style={styles.wrapper}>
       <TipPressable
         tip={tipLabel}
         onPress={onPress}
-        style={({ pressed }) => [
+        style={[
           styles.button,
           { width: size, height: size, borderRadius: size / 2 },
           isPrimary && styles.buttonPrimary,
           isDanger && styles.buttonDanger,
-          pressed && styles.buttonPressed,
           style,
         ]}
       >
-        <Ionicons
-          name={icon}
-          size={size * 0.42}
-          color={isPrimary ? colors.onPrimary : isDanger ? colors.danger : colors.textPrimary}
-        />
+        {({ pressed }) => (
+          <Ionicons name={icon} size={size * 0.42} color={pressed ? pressedIconColor : idleColor} />
+        )}
       </TipPressable>
       {label ? <Text style={styles.label}>{label}</Text> : null}
     </View>
@@ -71,10 +70,6 @@ const styles = StyleSheet.create({
   buttonDanger: {
     backgroundColor: 'rgba(242, 99, 123, 0.12)',
     borderColor: 'rgba(242, 99, 123, 0.35)',
-  },
-  buttonPressed: {
-    opacity: 0.75,
-    transform: [{ scale: 0.96 }],
   },
   label: {
     color: colors.textSecondary,

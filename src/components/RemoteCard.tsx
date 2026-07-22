@@ -6,9 +6,10 @@ import type { VolumeInfo } from '../services/androidTvConnection';
 import { colors, radii, spacing } from '../theme';
 import type { AppShortcut, RemoteKey, VoiceSessionState } from '../types/remote';
 import { AppShortcutRow } from './AppShortcutRow';
+import { ChannelRocker } from './ChannelRocker';
 import { DPad } from './DPad';
 import { IconButton } from './IconButton';
-import { TipPressable } from './TipPressable';
+import { TipPressable, pressedIconColor } from './TipPressable';
 import { VolumeRocker } from './VolumeRocker';
 
 type RemoteCardProps = {
@@ -16,6 +17,8 @@ type RemoteCardProps = {
   onKeyPress: (key: RemoteKey) => void;
   onLaunchApp: (app: AppShortcut) => void;
   onOpenSettings: () => void;
+  onOpenFileManager: () => void;
+  onRestartTv: () => void;
   onOpenKeyboard: () => void;
   onSendDigit: (digit: string) => void;
   voiceState: VoiceSessionState;
@@ -38,6 +41,8 @@ export function RemoteCard({
   onKeyPress,
   onLaunchApp,
   onOpenSettings,
+  onOpenFileManager,
+  onRestartTv,
   onOpenKeyboard,
   onSendDigit,
   voiceState,
@@ -46,9 +51,10 @@ export function RemoteCard({
 }: RemoteCardProps) {
   const isListening = voiceState === 'listening';
   const isSending = voiceState === 'sending';
+  const isMuted = volume?.muted ?? false;
   const [numPadOpen, setNumPadOpen] = useState(false);
 
-  const gridActions: CircleAction[] = [
+  const leftColumn: CircleAction[] = [
     {
       key: 'keyboard',
       label: 'Keyboard',
@@ -56,22 +62,34 @@ export function RemoteCard({
       renderIcon: (color) => <MaterialCommunityIcons name="keyboard-outline" size={26} color={color} />,
     },
     {
+      key: 'files',
+      label: 'Files / USB',
+      onPress: onOpenFileManager,
+      renderIcon: (color) => <MaterialCommunityIcons name="usb" size={26} color={color} />,
+    },
+    {
+      key: 'mute',
+      label: isMuted ? 'Unmute' : 'Mute',
+      onPress: () => onKeyPress('MUTE'),
+      active: isMuted,
+      renderIcon: (color) => (
+        <Ionicons name={isMuted ? 'volume-mute' : 'volume-high-outline'} size={26} color={color} />
+      ),
+    },
+  ];
+
+  const middleColumn: CircleAction[] = [
+    {
       key: 'home',
       label: 'Home',
       onPress: () => onKeyPress('HOME'),
       renderIcon: (color) => <Ionicons name="home-outline" size={24} color={color} />,
     },
     {
-      key: 'numpad',
-      label: 'Number pad',
-      onPress: () => setNumPadOpen(true),
-      renderIcon: (color) => <Ionicons name="keypad-outline" size={24} color={color} />,
-    },
-    {
-      key: 'mute',
-      label: 'Mute',
-      onPress: () => onKeyPress('MUTE'),
-      renderIcon: (color) => <Ionicons name="volume-high-outline" size={26} color={color} />,
+      key: 'hdmi',
+      label: 'HDMI 1',
+      onPress: () => onKeyPress('HDMI_1'),
+      renderIcon: (color) => <MaterialCommunityIcons name="video-input-hdmi" size={26} color={color} />,
     },
     {
       key: 'mic',
@@ -82,6 +100,21 @@ export function RemoteCard({
       active: isListening,
       renderIcon: (color) => <Ionicons name={isListening ? 'mic' : 'mic-outline'} size={26} color={color} />,
     },
+  ];
+
+  const rightColumn: CircleAction[] = [
+    {
+      key: 'numpad',
+      label: 'Number pad',
+      onPress: () => setNumPadOpen(true),
+      renderIcon: (color) => <Ionicons name="keypad-outline" size={24} color={color} />,
+    },
+    {
+      key: 'restart',
+      label: 'Restart TV',
+      onPress: onRestartTv,
+      renderIcon: (color) => <MaterialCommunityIcons name="restart" size={26} color={color} />,
+    },
     {
       key: 'back',
       label: 'Back',
@@ -89,6 +122,30 @@ export function RemoteCard({
       renderIcon: (color) => <Ionicons name="return-down-back" size={26} color={color} />,
     },
   ];
+
+  const renderCircle = (action: CircleAction) => (
+    <TipPressable
+      key={action.key}
+      tip={action.label}
+      onPress={action.onPress}
+      disabled={action.disabled}
+      accessibilityRole="button"
+      accessibilityLabel={action.label}
+      style={[
+        styles.circleButton,
+        action.active && styles.circleButtonActive,
+        action.disabled && styles.circleButtonDisabled,
+      ]}
+    >
+      {({ pressed }) =>
+        action.loading ? (
+          <ActivityIndicator color={colors.textPrimary} size="small" />
+        ) : (
+          action.renderIcon(pressed ? pressedIconColor : colors.textPrimary)
+        )
+      }
+    </TipPressable>
+  );
 
   return (
     <View style={styles.card}>
@@ -116,45 +173,28 @@ export function RemoteCard({
         />
 
         <View style={styles.actionGrid}>
-          {gridActions.map((action) => (
-            <TipPressable
-              key={action.key}
-              tip={action.label}
-              onPress={action.onPress}
-              disabled={action.disabled}
-              accessibilityRole="button"
-              accessibilityLabel={action.label}
-              style={({ pressed }) => [
-                styles.circleButton,
-                action.active && styles.circleButtonActive,
-                pressed && styles.circleButtonPressed,
-                action.disabled && styles.circleButtonDisabled,
-              ]}
-            >
-              {action.loading ? (
-                <ActivityIndicator color={colors.textPrimary} size="small" />
-              ) : (
-                action.renderIcon(colors.textPrimary)
-              )}
-            </TipPressable>
-          ))}
+          <View style={styles.gridColumn}>{leftColumn.map(renderCircle)}</View>
+          <View style={styles.gridColumn}>{middleColumn.map(renderCircle)}</View>
+          <View style={styles.gridColumn}>{rightColumn.map(renderCircle)}</View>
         </View>
 
-        <TipPressable
-          tip="HDMI 1"
-          onPress={() => onKeyPress('HDMI_1')}
-          accessibilityRole="button"
-          accessibilityLabel="HDMI 1"
-          style={({ pressed }) => [styles.hdmiButton, pressed && styles.circleButtonPressed]}
-        >
-          <MaterialCommunityIcons name="video-input-hdmi" size={28} color={colors.textPrimary} />
-          <Text style={styles.hdmiLabel}>HDMI 1</Text>
-        </TipPressable>
+        <ChannelRocker
+          onChannelUp={() => onKeyPress('CHANNEL_UP')}
+          onChannelDown={() => onKeyPress('CHANNEL_DOWN')}
+        />
       </View>
 
-      <TipPressable tip="TV Settings" onPress={onOpenSettings} style={styles.settingsLink}>
-        <Ionicons name="settings-outline" size={14} color={colors.textMuted} />
-        <Text style={styles.settingsText}>TV Settings</Text>
+      <TipPressable tip="TV Settings" onPress={onOpenSettings} style={styles.settingsLink} showPressedOverlay={false}>
+        {({ pressed }) => (
+          <>
+            <Ionicons
+              name="settings-outline"
+              size={14}
+              color={pressed ? '#3A4254' : colors.textMuted}
+            />
+            <Text style={[styles.settingsText, pressed && styles.settingsTextPressed]}>TV Settings</Text>
+          </>
+        )}
       </TipPressable>
 
       <Modal visible={numPadOpen} transparent animationType="fade" onRequestClose={() => setNumPadOpen(false)}>
@@ -171,10 +211,16 @@ export function RemoteCard({
                     <TipPressable
                       key="backspace"
                       tip="Backspace"
-                      style={({ pressed }) => [styles.numPadKey, pressed && styles.circleButtonPressed]}
+                      style={styles.numPadKey}
                       onPress={() => onKeyPress('BACK')}
                     >
-                      <Ionicons name="backspace-outline" size={22} color={colors.textPrimary} />
+                      {({ pressed }) => (
+                        <Ionicons
+                          name="backspace-outline"
+                          size={22}
+                          color={pressed ? pressedIconColor : colors.textPrimary}
+                        />
+                      )}
                     </TipPressable>
                   );
                 }
@@ -182,10 +228,12 @@ export function RemoteCard({
                   <TipPressable
                     key={digit}
                     tip={`Digit ${digit}`}
-                    style={({ pressed }) => [styles.numPadKey, pressed && styles.circleButtonPressed]}
+                    style={styles.numPadKey}
                     onPress={() => onSendDigit(digit)}
                   >
-                    <Text style={styles.numPadDigit}>{digit}</Text>
+                    {({ pressed }) => (
+                      <Text style={[styles.numPadDigit, pressed && styles.numPadDigitPressed]}>{digit}</Text>
+                    )}
                   </TipPressable>
                 );
               })}
@@ -208,8 +256,8 @@ const styles = StyleSheet.create({
     borderColor: colors.borderSoft,
     borderRadius: radii.lg,
     borderWidth: 1,
-    padding: spacing.lg,
     overflow: 'visible',
+    padding: spacing.lg,
   },
   header: {
     alignItems: 'center',
@@ -243,15 +291,13 @@ const styles = StyleSheet.create({
     zIndex: 3,
   },
   actionGrid: {
-    columnGap: spacing.md,
     flexDirection: 'row',
-    flexWrap: 'wrap',
-    height: CIRCLE * 2 + spacing.md,
-    justifyContent: 'center',
+    gap: spacing.md,
     overflow: 'visible',
-    rowGap: spacing.md,
-    width: CIRCLE * 3 + spacing.md * 2,
     zIndex: 3,
+  },
+  gridColumn: {
+    gap: spacing.md,
   },
   circleButton: {
     alignItems: 'center',
@@ -267,29 +313,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(135, 206, 235, 0.22)',
     borderColor: '#87CEEB',
   },
-  circleButtonPressed: {
-    opacity: 0.72,
-    transform: [{ scale: 0.96 }],
-  },
   circleButtonDisabled: {
     opacity: 0.55,
-  },
-  hdmiButton: {
-    alignItems: 'center',
-    backgroundColor: colors.surfaceAlt,
-    borderColor: colors.border,
-    borderRadius: 18,
-    borderWidth: 1,
-    gap: 6,
-    height: 200,
-    justifyContent: 'center',
-    width: 56,
-  },
-  hdmiLabel: {
-    color: colors.textPrimary,
-    fontSize: 11,
-    fontWeight: '800',
-    letterSpacing: 0.4,
   },
   settingsLink: {
     alignItems: 'center',
@@ -303,6 +328,10 @@ const styles = StyleSheet.create({
     color: colors.textMuted,
     fontSize: 12,
     fontWeight: '600',
+  },
+  settingsTextPressed: {
+    color: colors.textSecondary,
+    opacity: 0.55,
   },
   modalBackdrop: {
     alignItems: 'center',
@@ -348,6 +377,9 @@ const styles = StyleSheet.create({
     color: colors.textPrimary,
     fontSize: 22,
     fontWeight: '600',
+  },
+  numPadDigitPressed: {
+    color: pressedIconColor,
   },
   numPadClose: {
     alignItems: 'center',
